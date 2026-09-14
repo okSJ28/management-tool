@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>開発プログラム管理ツール</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app" class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">DP</div>
+      <div class="brand-text">
+        <strong>業務管理ツール</strong>
+        <span id="brandSub">読み込み中…</span>
+      </div>
+    </div>
+    <div class="app-switch" id="appSwitch"></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <button class="btn btn-ghost btn-sm" id="btnCollapse" title="サイドバー切替">‹‹ 折りたたむ</button>
+      <div class="sync" id="syncInfo"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="btnMenu" title="メニュー">☰</button>
+      <div class="titlebar">
+        <h1 id="viewTitle">ダッシュボード</h1>
+        <p id="viewDesc"></p>
+      </div>
+      <div class="topbar-tools">
+        <span class="chip shared-badge" id="sharedBadge" hidden>🌐 共有モード</span>
+        <button class="btn btn-sm" id="userBadge">👤 利用者を設定</button>
+        <div class="search-box">
+          <span class="search-ico">🔍</span>
+          <input type="search" id="globalSearch" placeholder="ID・案件・担当者で横断検索 (Ctrl+K)">
+        </div>
+        <button class="btn btn-primary" id="btnQuickAdd">＋ 新規登録</button>
+      </div>
+    </header>
+    <section class="view" id="view"></section>
+  </main>
+</div>
+
+<div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+<aside class="drawer" id="drawer" hidden></aside>
+<div class="modal-backdrop" id="modalBackdrop" hidden><div class="modal" id="modal"></div></div>
+<div class="toasts" id="toasts"></div>
+<div class="loading" id="loading" hidden><div class="spinner"></div><div class="loading-msg" id="loadingMsg"></div></div>
+
+<script src="js/util.js"></script>
+<script>
+/* 予期しないエラーで無限に読込中のままにならないようにする保険 */
+(function () {
+  function panel(title, detail) {
+    var el = document.getElementById('view');
+    var load = document.getElementById('loading');
+    if (load) load.hidden = true;
+    if (!el) return;
+    el.innerHTML = '<div class="card"><div class="card-head"><h3>' + title + '</h3></div>' +
+      '<div class="card-body"><pre style="white-space:pre-wrap;font-size:12px">' + detail + '</pre>' +
+      '<button class="btn btn-primary" onclick="location.reload()">再読み込み</button></div></div>';
+  }
+  var missing = [];
+  if (typeof window.fetch !== 'function') missing.push('fetch');
+  if (typeof window.Promise !== 'function') missing.push('Promise');
+  if (typeof window.Map !== 'function') missing.push('Map');
+  if (!Array.from) missing.push('Array.from');
+  if (!Object.assign) missing.push('Object.assign');
+  if (missing.length) {
+    document.addEventListener('DOMContentLoaded', function () {
+      panel('⚠ このブラウザでは動作しません',
+        'このページは Internet Explorer 互換モードで開かれている可能性があります。\n' +
+        '未対応の機能: ' + missing.join(', ') + '\n\n' +
+        'Microsoft Edge / Google Chrome の通常モードで http://localhost:8765/ を開いてください。\n' +
+        '（Edgeの「…」メニュー →「Internet Explorer モードで再読み込み」がオンになっていないか確認してください）');
+    });
+    window.__bootBlocked = true;
+    return;
+  }
+  window.addEventListener('error', function (e) {
+    panel('⚠ スクリプトエラーが発生しました',
+      (e.message || '') + '\n' + (e.filename || '') + ' : ' + (e.lineno || ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    panel('⚠ 通信エラーが発生しました', (r && r.message) ? r.message : String(r));
+  });
+})();
+</script>
+<script src="js/api.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/form.js"></script>
+<script src="js/views/dashboard.js"></script>
+<script src="js/views/tasks.js"></script>
+<script src="js/views/members.js"></script>
+<script src="js/views/gantt.js"></script>
+<script src="js/views/analytics.js"></script>
+<script src="js/views/pivot.js"></script>
+<script src="js/views/entry.js"></script>
+<script src="js/views/plan_assign.js"></script>
+<script src="js/views/plan_input.js"></script>
+<script src="js/views/plan_board.js"></script>
+<script src="js/views/io.js"></script>
+<script src="js/views/settings.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+{
+  "systems": ["ES", "NET", "Handyman2", "SakSak口座", "RiskOut", "口座フルペーパーレス", "営業支援", "運用ツール", "JBOX"],
+  "resources": [
+    "JN", "RD", "リアル", "コピー句", "コピーサブ", "サブルーチン", "バッチ", "中間P",
+    "AP", "集約", "ｺﾋﾟｰ句(ﾘｱﾙ)", "ｺﾋﾟｰ句(ﾊﾞｯﾁ)", "ﾌﾟﾙﾀﾞｳﾝ", "EUR", "LK-UP", "FOG", "CSV", "画面", "BJEX",
+    "bjex", "帳票",
+    "jsp(画面)", "リアル(AP)", "リアル(WEB)", "リアル(画面)", "リアル(集約)",
+    "ジョブフロー", "システムフロー", "SQL", "JavaScript", "winbat", "ホスト"
+  ],
+  "kubuns": ["新規", "修正", "削除", "調査"],
+  "statuses": [
+    { "value": "未着手", "color": "#94a3b8" },
+    { "value": "進行中", "color": "#2563eb" },
+    { "value": "レビュー中", "color": "#d97706" },
+    { "value": "完了", "color": "#16a34a" },
+    { "value": "保留", "color": "#dc2626" },
+    { "value": "対象外", "color": "#cbd5e1" }
+  ],
+  "designTypes": ["プログラム設計", "詳細設計"],
+  "editors": ["PL/Ⅰ", "秀丸", "VSCode", "Eclipse", "TeraPad", "その他"],
+  "members": [],
+  "projects": [],
+  "entryStatuses": ["完了", "対象外", "未入力"],
+  "resourceGroups": {
+    "サブルーチン系": ["JN", "サブルーチン", "コピーサブ"],
+    "リアル系": ["リアル", "リアル(AP)", "リアル(WEB)", "リアル(画面)", "リアル(集約)", "RD"],
+    "コピー句系": ["コピー句", "ｺﾋﾟｰ句(ﾘｱﾙ)", "ｺﾋﾟｰ句(ﾊﾞｯﾁ)"],
+    "バッチ系": ["バッチ", "中間P", "BJEX", "bjex", "winbat", "ジョブフロー", "システムフロー"],
+    "画面系": ["画面", "jsp(画面)", "ﾌﾟﾙﾀﾞｳﾝ", "JavaScript"],
+    "データ系": ["SQL", "CSV", "EUR", "LK-UP", "FOG", "集約", "AP"]
+  },
+  "planCategories": [
+    { "value": "製造", "color": "#2563eb" },
+    { "value": "詳細設計", "color": "#7c3aed" },
+    { "value": "基本設計", "color": "#6366f1" },
+    { "value": "テスト", "color": "#0891b2" },
+    { "value": "レビュー", "color": "#d97706" },
+    { "value": "調査・解析", "color": "#0d9488" },
+    { "value": "会議", "color": "#64748b" },
+    { "value": "資料作成", "color": "#059669" },
+    { "value": "教育・研修", "color": "#9333ea" },
+    { "value": "問合せ対応", "color": "#db2777" },
+    { "value": "休暇", "color": "#94a3b8" },
+    { "value": "その他", "color": "#a3a3a3" }
+  ],
+  "planStatuses": [
+    { "value": "予定", "color": "#94a3b8" },
+    { "value": "実施中", "color": "#2563eb" },
+    { "value": "完了", "color": "#16a34a" },
+    { "value": "中止", "color": "#dc2626" }
+  ],
+  "projectCodes": [
+    { "code": "C02PA0615P", "name": "若手育成" },
+    { "code": "Z200Z0E1Z0", "name": "証券事業部間接費" },
+    { "code": "C0A6A025G0", "name": "令和８年度税制改正対応" },
+    { "code": "C02PA0615N", "name": "生産性向上" }
+  ],
+  "workCodes": [
+    { "code": "A000000059", "name": "自部門管理活動" },
+    { "code": "A000000063", "name": "受講" },
+    { "code": "A000000005", "name": "製造" },
+    { "code": "D000000002", "name": "チャレンジ時間" }
+  ],
+  "settings": {
+    "baseCoef": 0.06,
+    "newCoef": 1,
+    "modCoef": 2,
+    "monthHours": 150,
+    "fiscalStartMonth": 4,
+    "workHoursPerDay": 7.5,
+    "targetProdMonth": 800,
+    "targetQuality": 50,
+    "sourceExcel": "開発プログラム一覧_R7.xlsx"
+  }
+}

@@ -1,0 +1,34 @@
+services:
+  app:
+    build: .
+    image: dev-program-management:latest
+    container_name: dpm-tool
+    restart: unless-stopped
+    ports:
+      # host:container - put a TLS terminating reverse proxy in front of this
+      # before exposing the port to the internet.
+      - "${DPM_PUBLISH_PORT:-8080}:8080"
+    environment:
+      DPM_READ_ONLY: "0"
+      DPM_BACKUP_KEEP: "30"
+      # Restrict to the public hostname once a domain is in place, e.g.
+      # DPM_ALLOWED_HOSTS: "example.com,localhost"
+      DPM_ALLOWED_HOSTS: "*"
+    volumes:
+      # store.sqlite3, backup/ and server.log live here.
+      # Drop an existing store.json into this volume to migrate it on boot,
+      # and put .xlsx files under ./files to make them importable.
+      - dpm-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  dpm-data:

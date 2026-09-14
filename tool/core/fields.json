@@ -1,0 +1,462 @@
+{
+  "types": [
+    { "key": "mfg", "label": "製造", "sheet": "製造", "color": "#2563eb" },
+    { "key": "dd", "label": "詳細設計", "sheet": "詳細設計", "color": "#7c3aed" }
+  ],
+  "groups": [
+    { "key": "basic", "label": "基本情報" },
+    { "key": "scale", "label": "規模（ステップ）" },
+    { "key": "sched", "label": "期間・体制" },
+    { "key": "quality", "label": "品質（指摘・障害）" },
+    { "key": "effort", "label": "工数" },
+    { "key": "etc", "label": "その他" },
+    { "key": "calc", "label": "算出指標（自動計算）" }
+  ],
+  "fields": [
+    {
+      "key": "type",
+      "label": "種別",
+      "type": "select",
+      "group": "basic",
+      "types": ["mfg", "dd"],
+      "source": "types",
+      "width": 90,
+      "readonly": true
+    },
+    {
+      "key": "system",
+      "label": "システム",
+      "type": "select",
+      "group": "basic",
+      "types": ["mfg"],
+      "source": "systems",
+      "excel": ["ｼｽﾃﾑ", "システム"],
+      "width": 80
+    },
+    {
+      "key": "resource",
+      "label": "リソース区分",
+      "type": "select",
+      "group": "basic",
+      "types": ["mfg", "dd"],
+      "source": "resources",
+      "excel": ["リソース区分"],
+      "width": 120
+    },
+    {
+      "key": "designType",
+      "label": "設計種別",
+      "type": "select",
+      "group": "basic",
+      "types": ["dd"],
+      "source": "designTypes",
+      "excel": ["プログラム設計/詳細設計"],
+      "width": 120
+    },
+    {
+      "key": "programId",
+      "label": "プログラムID",
+      "type": "text",
+      "group": "basic",
+      "types": ["mfg", "dd"],
+      "excel": ["プログラムID"],
+      "width": 170,
+      "required": true
+    },
+    {
+      "key": "kubun",
+      "label": "区分",
+      "type": "select",
+      "group": "basic",
+      "types": ["mfg", "dd"],
+      "source": "kubuns",
+      "excel": ["区分"],
+      "width": 80
+    },
+    {
+      "key": "project",
+      "label": "案件名",
+      "type": "select-free",
+      "group": "basic",
+      "types": ["mfg", "dd"],
+      "source": "projects",
+      "excel": ["案件名"],
+      "width": 320
+    },
+    {
+      "key": "baseStep",
+      "label": "母体step",
+      "type": "number",
+      "group": "scale",
+      "types": ["mfg"],
+      "excel": ["母体step"],
+      "width": 90,
+      "decimals": 0
+    },
+    {
+      "key": "newStep",
+      "label": "新規step",
+      "type": "number",
+      "group": "scale",
+      "types": ["mfg"],
+      "excel": ["新規step"],
+      "width": 90,
+      "decimals": 0
+    },
+    {
+      "key": "modStep",
+      "label": "修正step",
+      "type": "number",
+      "group": "scale",
+      "types": ["mfg"],
+      "excel": ["修正step"],
+      "width": 90,
+      "decimals": 0
+    },
+    {
+      "key": "convStep",
+      "label": "換算step",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "excel": ["換算stp", "換算step"],
+      "width": 100,
+      "decimals": 2,
+      "help": "母体step×0.06 + 新規step×1 + 修正step×2"
+    },
+    {
+      "key": "startDate",
+      "label": "開始日",
+      "type": "date",
+      "group": "sched",
+      "types": ["mfg", "dd"],
+      "excel": ["開始日"],
+      "width": 110
+    },
+    {
+      "key": "endDate",
+      "label": "終了日",
+      "type": "date",
+      "group": "sched",
+      "types": ["mfg", "dd"],
+      "excel": ["終了日"],
+      "width": 110
+    },
+    {
+      "key": "assignee1",
+      "label": "担当者①",
+      "type": "select-free",
+      "group": "sched",
+      "types": ["mfg", "dd"],
+      "source": "members",
+      "excel": ["担当者①", "担当者1"],
+      "width": 110
+    },
+    {
+      "key": "assignee2",
+      "label": "担当者②",
+      "type": "select-free",
+      "group": "sched",
+      "types": ["mfg", "dd"],
+      "source": "members",
+      "excel": ["担当者②", "担当者2"],
+      "width": 110
+    },
+    {
+      "key": "status",
+      "label": "ステータス",
+      "type": "select",
+      "group": "sched",
+      "types": ["mfg", "dd"],
+      "source": "statuses",
+      "width": 100,
+      "help": "未設定の場合は開始日／終了日から自動判定"
+    },
+    {
+      "key": "progress",
+      "label": "進捗率(%)",
+      "type": "number",
+      "group": "sched",
+      "types": ["mfg", "dd"],
+      "width": 90,
+      "decimals": 0
+    },
+    {
+      "key": "issueCode",
+      "label": "指摘(コーディング)",
+      "type": "number",
+      "group": "quality",
+      "types": ["mfg"],
+      "excel": ["指摘件数コーディング"],
+      "width": 130,
+      "decimals": 0
+    },
+    {
+      "key": "issueCheck",
+      "label": "指摘(チェックリスト)",
+      "type": "number",
+      "group": "quality",
+      "types": ["mfg"],
+      "excel": ["指摘件数チェックリスト"],
+      "width": 140,
+      "decimals": 0
+    },
+    {
+      "key": "issueVerify",
+      "label": "指摘(検証資料)",
+      "type": "number",
+      "group": "quality",
+      "types": ["mfg"],
+      "excel": ["指摘件数検証資料"],
+      "width": 120,
+      "decimals": 0
+    },
+    {
+      "key": "defect",
+      "label": "障害発生件数",
+      "type": "number",
+      "group": "quality",
+      "types": ["mfg"],
+      "excel": ["障害発生件数"],
+      "width": 110,
+      "decimals": 0
+    },
+    {
+      "key": "pages",
+      "label": "設計書頁数",
+      "type": "number",
+      "group": "scale",
+      "types": ["dd"],
+      "excel": ["設計書頁数"],
+      "width": 100,
+      "decimals": 0
+    },
+    {
+      "key": "issues",
+      "label": "指摘件数",
+      "type": "number",
+      "group": "quality",
+      "types": ["dd"],
+      "excel": ["指摘件数"],
+      "width": 100,
+      "decimals": 0
+    },
+    {
+      "key": "hourMake",
+      "label": "工数 製造(h)",
+      "type": "number",
+      "group": "effort",
+      "types": ["mfg"],
+      "excel": ["開発時間製造"],
+      "width": 110,
+      "decimals": 2
+    },
+    {
+      "key": "hourCheck",
+      "label": "工数 チェックリスト(h)",
+      "type": "number",
+      "group": "effort",
+      "types": ["mfg"],
+      "excel": ["開発時間チェックリスト"],
+      "width": 150,
+      "decimals": 2
+    },
+    {
+      "key": "hourVerify",
+      "label": "工数 検証資料(h)",
+      "type": "number",
+      "group": "effort",
+      "types": ["mfg"],
+      "excel": ["開発時間検証資料"],
+      "width": 130,
+      "decimals": 2
+    },
+    {
+      "key": "hourDesign",
+      "label": "詳細設計 時間(h)",
+      "type": "number",
+      "group": "effort",
+      "types": ["dd"],
+      "excel": ["詳細設計時間"],
+      "width": 130,
+      "decimals": 2
+    },
+    {
+      "key": "totalHour",
+      "label": "総工数(h)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg", "dd"],
+      "width": 100,
+      "decimals": 2,
+      "help": "製造+チェックリスト+検証資料（詳細設計は設計時間）"
+    },
+    {
+      "key": "testRatio",
+      "label": "テスト比率(%)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "excel": ["テスト比率"],
+      "width": 110,
+      "decimals": 1,
+      "help": "(チェックリスト+検証資料)÷総工数×100"
+    },
+    {
+      "key": "prodNew",
+      "label": "生産性 新規(step/h)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "width": 140,
+      "decimals": 2,
+      "help": "新規step÷製造工数"
+    },
+    {
+      "key": "prodMod",
+      "label": "生産性 修正(step/h)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "width": 140,
+      "decimals": 2,
+      "help": "修正step÷製造工数"
+    },
+    {
+      "key": "prodMonth",
+      "label": "月換算生産性",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "width": 120,
+      "decimals": 1,
+      "help": "(新規step+修正step)÷総工数×150"
+    },
+    {
+      "key": "issueTotal",
+      "label": "指摘合計",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg", "dd"],
+      "width": 90,
+      "decimals": 0
+    },
+    {
+      "key": "quality",
+      "label": "品質(指摘/KS)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "width": 110,
+      "decimals": 2,
+      "help": "指摘合計÷換算step×1000"
+    },
+    {
+      "key": "defectRate",
+      "label": "障害(件/KS)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg"],
+      "width": 110,
+      "decimals": 2
+    },
+    {
+      "key": "pagePerHour",
+      "label": "設計効率(頁/h)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["dd"],
+      "width": 120,
+      "decimals": 2
+    },
+    {
+      "key": "issuePerPage",
+      "label": "品質(指摘/頁)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["dd"],
+      "width": 120,
+      "decimals": 2
+    },
+    {
+      "key": "durationDays",
+      "label": "期間(日)",
+      "type": "calc",
+      "group": "calc",
+      "types": ["mfg", "dd"],
+      "width": 90,
+      "decimals": 0
+    },
+    {
+      "key": "editor",
+      "label": "使用エディタ",
+      "type": "select-free",
+      "group": "etc",
+      "types": ["mfg"],
+      "source": "editors",
+      "excel": ["使用エディタ"],
+      "width": 120
+    },
+    {
+      "key": "compileCount",
+      "label": "コンパイル回数",
+      "type": "number",
+      "group": "etc",
+      "types": ["mfg"],
+      "excel": ["コンパイル回数"],
+      "width": 110,
+      "decimals": 0
+    },
+    {
+      "key": "compileMain",
+      "label": "コンパイル内訳 MAIN",
+      "type": "number",
+      "group": "etc",
+      "types": ["mfg"],
+      "excel": ["MAIN(サブ含む）", "MAIN"],
+      "width": 150,
+      "decimals": 0
+    },
+    {
+      "key": "month",
+      "label": "計上月",
+      "type": "text",
+      "group": "etc",
+      "types": ["dd"],
+      "excel": ["計上月"],
+      "width": 90
+    },
+    {
+      "key": "tags",
+      "label": "タグ",
+      "type": "text",
+      "group": "etc",
+      "types": ["mfg", "dd"],
+      "width": 140,
+      "help": "カンマ区切り"
+    },
+    {
+      "key": "note",
+      "label": "備考",
+      "type": "textarea",
+      "group": "etc",
+      "types": ["mfg", "dd"],
+      "excel": ["備考"],
+      "width": 240
+    }
+  ],
+  "tableColumns": {
+    "mfg": [
+      "status", "programId", "system", "resource", "kubun", "project",
+      "assignee1", "startDate", "endDate", "progress",
+      "baseStep", "newStep", "modStep", "convStep",
+      "hourMake", "hourCheck", "hourVerify", "totalHour",
+      "issueTotal", "defect", "testRatio", "prodMonth", "quality"
+    ],
+    "dd": [
+      "status", "programId", "resource", "designType", "kubun", "project",
+      "assignee1", "startDate", "endDate", "progress",
+      "pages", "issues", "hourDesign", "pagePerHour", "issuePerPage", "month"
+    ]
+  }
+}

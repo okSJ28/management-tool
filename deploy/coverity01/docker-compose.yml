@@ -1,0 +1,38 @@
+# coverity01 (172.30.4.89) 向けデプロイ設定
+# 配置: /opt/docker/devops/dpm/
+#   docker-compose.yml / Dockerfile / requirements.txt / tool/  … アプリ一式
+#   data/                                                      … 永続データ(SQLite・バックアップ・ログ・取込用Excel)
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dpm-tool:latest
+    container_name: dpm-tool
+    restart: unless-stopped
+    ports:
+      - "51400:8080"
+    environment:
+      TZ: Asia/Tokyo
+      DPM_ALLOWED_HOSTS: "*"
+      DPM_READ_ONLY: "0"
+      DPM_BACKUP_KEEP: "30"
+    # bind mount 先 ./data の所有者(kanri=1000)に合わせる
+    user: "1000:1000"
+    volumes:
+      - ./data:/data:Z
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,2 @@
+# Optional: Excel import/export. Everything else uses the standard library.
+openpyxl==3.1.5

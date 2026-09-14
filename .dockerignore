@@ -1,0 +1,15 @@
+# Build context noise
+.git
+.gitignore
+.vscode
+**/__pycache__
+**/*.pyc
+
+# Local runtime data - the container uses the /data volume instead
+tool/data
+/data
+*.xlsx
+*.xls
+
+# Windows launchers
+*.bat
