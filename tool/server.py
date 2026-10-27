@@ -23,7 +23,8 @@ from pathlib import Path
 
 from api import build_router, static_files
 from api.http import ApiError, Request, Response, error
-from core import storage
+from api.router import ADMIN, PUBLIC, Route
+from core import auth, storage
 from core.config import CONFIG
 from core.storage import STORE
 
@@ -37,6 +38,19 @@ _COMPRESSIBLE = ("application/json", "text/", "application/javascript",
 def _compressible(content_type: str) -> bool:
     ctype = (content_type or "").lower()
     return any(ctype.startswith(prefix) for prefix in _COMPRESSIBLE)
+
+
+def _access_error(route: Route, request: Request) -> Response | None:
+    """Login / admin / read-only checks for an API route."""
+    if route.auth == PUBLIC:
+        return None
+    if request.account is None:
+        return error("unauthorized", 401)
+    if route.auth == ADMIN and not auth.is_admin(request.account):
+        return error("forbidden", 403)
+    if CONFIG.read_only and request.method not in SAFE_METHODS:
+        return error("read-only-mode", 403)
+    return None
 
 
 def log(line: str) -> None:
@@ -126,8 +140,6 @@ class Handler(BaseHTTPRequestHandler):
             if method in SAFE_METHODS:
                 return self._write(static_files.serve(CONFIG.web_dir, route))
             return self._write(error("not-found", 404))
-        if CONFIG.read_only and method not in SAFE_METHODS:
-            return self._write(error("read-only-mode", 403))
 
         match = ROUTER.resolve("GET" if method == "HEAD" else method, route)
         if match is None:
@@ -135,13 +147,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._write(error("method-not-allowed", 405))
             return self._write(error("not-found", 404))
 
-        handler, params = match
+        target, params = match
         try:
             request = Request(method=method, path=route,
                               query=urllib.parse.parse_qs(parsed.query),
                               params=params, headers=dict(self.headers),
                               body=self._read_body())
-            return self._write(handler(request))
+            request.account = auth.verify_token(request.cookie(auth.COOKIE))
+            denied = _access_error(target, request)
+            if denied is not None:
+                return self._write(denied)
+            return self._write(target.handler(request))
         except ApiError as exc:
             return self._write(error(exc.message, exc.status))
         except json.JSONDecodeError:
@@ -220,6 +236,7 @@ def main() -> None:
     if primary is None:
         raise SystemExit("no free port")
     CONFIG.port = port
+    auth.ensure_ready()
 
     ips = _local_ips()
     if CONFIG.shared:
@@ -251,6 +268,7 @@ def main() -> None:
         print("  Mode     : READ ONLY")
     print(f"  Folder   : {CONFIG.files_dir}")
     print(f"  Database : {STORE.path}")
+    print(f"  Accounts : {len(auth.list_users())} users (login required)")
     print(f"  Log      : {CONFIG.log_path}")
     print(f"  Endpoints: {len(ROUTER.describe())}")
     print("  Press Ctrl+C to stop.")

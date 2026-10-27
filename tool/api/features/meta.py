@@ -7,21 +7,22 @@ from core.config import CONFIG
 from core.storage import STORE
 
 from ..http import Request, Response, json_response
-from ..router import Router
+from ..router import PUBLIC, Router
 
 router = Router()
 
 
-@router.get("/api/health")
+@router.get("/api/health", auth=PUBLIC)
 def health(_req: Request) -> Response:
     return json_response({"status": "ok"})
 
 
 @router.get("/api/bootstrap")
-def bootstrap(_req: Request) -> Response:
+def bootstrap(req: Request) -> Response:
     data = STORE.load()
     STORE.recompute_all()
     return json_response({
+        "account": req.account,
         "schema": model.SCHEMA,
         "enums": model.ENUMS,
         "masters": data["masters"],

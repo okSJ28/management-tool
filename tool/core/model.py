@@ -148,7 +148,12 @@ def compute(task: dict, settings: dict | None = None) -> dict:
             task[key] = None
     else:
         base, new, mod = n("baseStep"), n("newStep"), n("modStep")
-        conv = base * cfg["baseCoef"] + new * cfg["newCoef"] + mod * cfg["modCoef"]
+        # Same as the Excel sheet: kubun selects the formula (anything but "new" counts as "mod").
+        is_new = (task.get("kubun") or "").strip() == KB["new"]
+        if is_new:
+            conv = new * cfg["newCoef"]
+        else:
+            conv = base * cfg["baseCoef"] + mod * cfg["modCoef"]
         task["convStep"] = _round(conv, 2) if (base or new or mod) else None
 
         make, check, verify = n("hourMake"), n("hourCheck"), n("hourVerify")
@@ -158,7 +163,7 @@ def compute(task: dict, settings: dict | None = None) -> dict:
         task["testRatio"] = _round(_div((check + verify) * 100.0, total), 1)
         task["prodNew"] = _round(_div(new, make), 2) if new else None
         task["prodMod"] = _round(_div(mod, make), 2) if mod else None
-        task["prodMonth"] = _round(_div((new + mod) * cfg["monthHours"], total), 1)
+        task["prodMonth"] = _round(_div((new if is_new else mod) * cfg["monthHours"], total), 1)
 
         issue_total = n("issueCode") + n("issueCheck") + n("issueVerify")
         any_issue = has("issueCode") or has("issueCheck") or has("issueVerify")

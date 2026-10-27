@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>開発プログラム管理ツール</title>
+<title>第2開発管理ツール</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
     <div class="brand">
       <div class="brand-mark">DP</div>
       <div class="brand-text">
-        <strong>業務管理ツール</strong>
+        <strong>第2開発管理ツール</strong>
         <span id="brandSub">読み込み中…</span>
       </div>
     </div>
@@ -33,7 +33,7 @@
       </div>
       <div class="topbar-tools">
         <span class="chip shared-badge" id="sharedBadge" hidden>🌐 共有モード</span>
-        <button class="btn btn-sm" id="userBadge">👤 利用者を設定</button>
+        <button class="btn btn-sm" id="userBadge">👤 アカウント</button>
         <div class="search-box">
           <span class="search-ico">🔍</span>
           <input type="search" id="globalSearch" placeholder="ID・案件・担当者で横断検索 (Ctrl+K)">
@@ -51,6 +51,29 @@
 <div class="toasts" id="toasts"></div>
 <div class="loading" id="loading" hidden><div class="spinner"></div><div class="loading-msg" id="loadingMsg"></div></div>
 
+<div class="login-screen" id="login" hidden>
+  <form class="login-card" id="loginForm" autocomplete="on">
+    <div class="login-brand">
+      <div class="brand-mark">DP</div>
+      <div>
+        <strong>第2開発管理ツール</strong>
+        <span>ログインしてください</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="loginId">ID</label>
+      <input type="text" id="loginId" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+    </div>
+    <div class="field">
+      <label for="loginPw">パスワード</label>
+      <input type="password" id="loginPw" name="password" autocomplete="current-password" required>
+    </div>
+    <div class="login-error" id="loginError" hidden></div>
+    <button type="submit" class="btn btn-primary login-submit" id="loginSubmit">ログイン</button>
+    <p class="login-note">IDやパスワードが分からない場合は管理者に問い合わせてください。</p>
+  </form>
+</div>
+
 <script src="js/util.js"></script>
 <script>
 /* 予期しないエラーで無限に読込中のままにならないようにする保険 */
@@ -60,8 +83,8 @@
     var load = document.getElementById('loading');
     if (load) load.hidden = true;
     if (!el) return;
-    el.innerHTML = '<div class="card"><div class="card-head"><h3>' + title + '</h3></div>' +
-      '<div class="card-body"><pre style="white-space:pre-wrap;font-size:12px">' + detail + '</pre>' +
+    el.innerHTML = '<div class="card"><div class="card-head"><h3>' + U.esc(title) + '</h3></div>' +
+      '<div class="card-body"><pre style="white-space:pre-wrap;font-size:12px">' + U.esc(detail) + '</pre>' +
       '<button class="btn btn-primary" onclick="location.reload()">再読み込み</button></div></div>';
   }
   var missing = [];
@@ -81,13 +104,19 @@
     window.__bootBlocked = true;
     return;
   }
+  /* 起動後は画面を置き換えず通知のみ（編集中の入力を消さないため） */
+  function report(title, detail) {
+    if (window.console) console.error(title, detail);
+    if (window.__appReady) U.toast(title + '\n' + detail, 'err', 0);
+    else panel(title, detail);
+  }
   window.addEventListener('error', function (e) {
-    panel('⚠ スクリプトエラーが発生しました',
+    report('⚠ スクリプトエラーが発生しました',
       (e.message || '') + '\n' + (e.filename || '') + ' : ' + (e.lineno || ''));
   });
   window.addEventListener('unhandledrejection', function (e) {
     var r = e.reason;
-    panel('⚠ 通信エラーが発生しました', (r && r.message) ? r.message : String(r));
+    report('⚠ 通信エラーが発生しました', (r && r.message) ? r.message : String(r));
   });
 })();
 </script>

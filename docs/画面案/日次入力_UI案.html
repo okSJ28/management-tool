@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>日次入力 UI 改善案 — 第2開発管理ツール</title>
+<style>
+  :root {
+    --bg: #f1f4f9; --surface: #fff; --surface-2: #f7f9fc; --border: #e2e8f0; --border-strong: #cbd5e1;
+    --text: #0f172a; --text-2: #475569; --text-3: #94a3b8;
+    --primary: #2563eb; --primary-soft: #e0ecff; --ok: #16a34a; --ok-soft: #dcfce7;
+    --danger: #dc2626; --danger-soft: #fee2e2;
+    --am: #d97706; --am-soft: #fffbeb; --pm: #4f46e5; --pm-soft: #eef2ff;
+    --c-make: #2563eb; --c-review: #7c3aed; --c-meet: #0891b2; --c-test: #16a34a;
+    --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font); font-size: 13px; color: var(--text); background: var(--bg); }
+  header.top { background: #131c31; color: #e2e8f0; padding: 18px 28px; }
+  header.top h1 { margin: 0 0 4px; font-size: 20px; }
+  header.top p { margin: 0; color: #94a3b8; }
+  nav.tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; padding: 10px 28px; background: #fff; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  nav.tabs button { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
+  nav.tabs button.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+  main { overflow-x: auto; max-width: 1280px; margin: 0 auto; padding: 20px 28px 60px; }
+  section.plan { display: none; }
+  section.plan.on { display: block; }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  .lead { color: var(--text-2); margin: 0 0 14px; line-height: 1.7; }
+  .pc { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 16px; }
+  .pc div { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; line-height: 1.7; }
+  .pc b { display: block; margin-bottom: 2px; }
+  .pc .p b { color: var(--ok); } .pc .c b { color: var(--danger); }
+  .pc ul { margin: 0; padding-left: 18px; }
+  .rec { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 999px; padding: 1px 10px; font-size: 12px; margin-left: 8px; vertical-align: middle; }
+
+  /* ---- 画面モックの外枠 ---- */
+  .screen { min-width: 1120px; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(15,23,42,.12); overflow: hidden; }
+  .screen .bar { background: #fff; border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+  .screen .bar .ttl { font-weight: 700; font-size: 16px; }
+  .screen .body { padding: 14px 16px; }
+  .note { position: relative; }
+  .tag { display: inline-block; background: #fde047; color: #713f12; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-left: 6px; vertical-align: middle; }
+
+  /* ---- 部品 ---- */
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .card-head h3 { margin: 0; font-size: 14px; }
+  .muted { color: var(--text-3); font-size: 11px; }
+  .sp { flex: 1; }
+  .btn { border: 1px solid var(--border-strong); background: #fff; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: default; white-space: nowrap; }
+  .btn.pri { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn.ghost { border-style: dashed; color: var(--text-2); }
+  .chip { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); }
+  .chip.ng { background: var(--danger-soft); color: var(--danger); }
+  .chip.gray { background: #f1f5f9; color: var(--text-2); }
+  .in { border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 6px; background: #fff; min-height: 26px; display: flex; align-items: center; color: var(--text); width: 100%; }
+  .in.ph { color: var(--text-3); }
+  .in.sel::after { content: "▾"; margin-left: auto; color: var(--text-3); padding-left: 6px; }
+  .in.num { justify-content: flex-end; }
+  .in.ro { background: var(--surface-2); color: var(--text-2); border-style: dashed; }
+  .in.focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+  .cat { display: inline-flex; align-items: center; gap: 5px; }
+  .cat::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+  table.g { width: 100%; border-collapse: collapse; }
+  table.g th { text-align: left; font-size: 11px; color: var(--text-2); font-weight: 600; padding: 6px 6px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.g td { padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.g tr.l td:first-child { box-shadow: inset 3px 0 0 var(--c); }
+  .bar-h { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
+  .bar-h span { display: block; height: 100%; background: var(--ok); }
+  .hrs { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: #e2e8f0; }
+  .hrs span { display: block; height: 100%; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+  .seg span { padding: 3px 7px; font-size: 11px; border-left: 1px solid var(--border); background: #fff; }
+  .seg span:first-child { border-left: 0; }
+  .seg span.on { background: var(--primary); color: #fff; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stick { position: sticky; bottom: 0; background: rgba(255,255,255,.96); border-top: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 10px; }
+  .kbd { font-family: Consolas, monospace; font-size: 10px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; color: var(--text-2); }
+  .callouts { margin: 14px 0 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+  .callouts li { background: #fff; border-left: 4px solid #fde047; padding: 6px 10px; border-radius: 0 8px 8px 0; line-height: 1.6; }
+  .callouts li b { color: #713f12; margin-right: 6px; }
+
+  /* 比較表 */
+  table.cmp { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+  table.cmp th, table.cmp td { border: 1px solid var(--border); padding: 8px 10px; text-align: center; }
+  table.cmp th { background: var(--surface-2); }
+  table.cmp td:first-child, table.cmp th:first-child { text-align: left; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>📝 業務予定 ＞ 日次入力 — UI 改善案</h1>
+  <p>見やすさと入力のしやすさを両立するための画面案です（静的モック。実装はしていません）。上のタブで案を切り替えてください。</p>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-k="now" class="on">現状の課題</button>
+  <button data-k="a">案A 縦並び＋整理</button>
+  <button data-k="b">案B 予実一体シート ★</button>
+  <button data-k="c">案C 朝／夕モード切替</button>
+  <button data-k="d">案D カード型</button>
+  <button data-k="cmp">比較とおすすめ</button>
+</nav>
+
+<main>
+
+<!-- ============================================================ 現状 -->
+<section class="plan on" id="now">
+  <h2>現状の課題</h2>
+  <p class="lead">現在の画面を実際に操作して気になった点です。各案はこれらの解消を狙っています。</p>
+  <ul class="callouts">
+    <li><b>① 横スクロール</b>始業前シートは 8 列（取組み予定・PJCD・作業コード・工程・案件名・作業内容・予定h・削除）あり、ノート PC 幅では表の中で横スクロールが発生し、「作業内容」「予定(h)」が画面外に出る。</li>
+    <li><b>② 予定と実績が見比べにくい</b>左右（または上下）に別の表として並ぶため、「朝予定した作業が夕方どうなったか」を行単位で対応づけて見られない。夕方は「⇩ 予定から取り込む」を押す一手間が必要。</li>
+    <li><b>③ 同じ情報が 3 か所に重複</b>状況カード（入力済/未入力）・各シート下の合計・下部の KPI カード 4 枚が、ほぼ同じ「件数と時間」を表示しており縦に長い。</li>
+    <li><b>④ 保存ボタンが 2 つで位置もバラバラ</b>シートごとに保存が必要で、スクロール位置によっては保存ボタンが見えない。保存し忘れに気づきにくい。</li>
+    <li><b>⑤ 進捗率の入力が手間</b>数値入力（spin）なので、マウス操作中心だと入力しづらい。必須なのに未入力の行が目立たない。</li>
+    <li><b>⑥ チーム入力状況が下にあり長い</b>13 人分の表が常に表示され、自分の入力には不要な場面が多い。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 案A -->
+<section class="plan" id="a">
+  <h2>案A 縦並び＋情報整理（最小変更）</h2>
+  <p class="lead">始業前→終業前を上下に固定し、上部に「今日のサマリ」を 1 本にまとめます。表の列は「作業内容」を主役にして幅を確保し、PJCD・作業コードは 1 列に統合（2 段表示）して横スクロールを無くします。</p>
+  <div class="pc">
+    <div class="p"><b>良い点</b><ul><li>今の操作手順のまま。利用者への再説明がほぼ不要</li><li>実装コストが最も小さい（レイアウトと列構成の変更のみ）</li></ul></div>
+    <div class="c"><b>気になる点</b><ul><li>予定と実績が別の表のままなので、行の対応づけは目で追う必要がある</li><li>夕方は下までスクロールする</li></ul></div>
+  </div>
+
+  <div class="screen">
+    <div class="bar"><span class="ttl">日次入力</span><span class="sp"></span><span class="btn">👤 岡本 央渉</span></div>
+    <div class="body">
+      <!-- サマリ帯 -->
+      <div class="card" style="padding:10px 14px">
+        <div class="row">
+          <span class="btn">‹</span><b style="font-size:15px">10/21（水）本日</b><span class="btn">›</span><span class="btn">📅</span>
+          <span style="margin-left:14px">☀ 始業前 <span class="chip ok">✓ 3件 7.0h</span></span>
+          <span>🌙 終業前 <span class="chip ng">未入力</span></span>
+          <span class="sp"></span>
+          <span class="btn">⧉ 前営業日を複製</span><span class="btn">📌 取組み予定</span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <span class="muted" style="width:70px">予定 7.0h</span>
+          <div class="hrs" style="flex:1"><span style="width:53%;background:var(--c-make)"></span><span style="width:20%;background:var(--c-review)"></span><span style="width:20%;background:var(--c-meet)"></span></div>
+          <span class="muted">基準 7.5h</span>
+        </div>
+      </div>
+      <p class="muted" style="margin:4px 0 0">　└ 状況カード 2 枚＋KPI カード 4 枚を、この 1 枚に集約<span class="tag">③</span></p>
+
+      <!-- 始業前 -->
+      <div class="card" style="margin-top:12px">
+        <div class="card-head" style="background:var(--am-soft);border-bottom:2px solid var(--am)">
+          <h3 style="color:var(--am)">☀ 始業前 — 本日やる作業</h3><span class="chip ok">保存済み</span><span class="sp"></span><span class="btn">＋ 行を追加</span>
+        </div>
+        <table class="g">
+          <tr><th style="width:150px">取組み予定</th><th style="width:96px">工程</th><th style="width:130px">案件名</th><th>作業内容</th><th style="width:140px">PJCD / 作業コード</th><th style="width:70px">予定(h)</th><th style="width:28px"></th></tr>
+          <tr class="l" style="--c:var(--c-make)"><td><div class="in sel">SDLP341 製造</div></td><td><div class="in sel"><span class="cat" style="--c:var(--c-make)">製造</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP341 修正・単体テスト</div></td><td><div class="in sel" style="font-size:11px">C0A6A025G0<br>A000000005</div></td><td><div class="in num">4.0</div></td><td>✕</td></tr>
+          <tr class="l" style="--c:var(--c-review)"><td><div class="in sel ph">（なし）</div></td><td><div class="in sel"><span class="cat" style="--c:var(--c-review)">レビュー</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP338 コードレビュー</div></td><td><div class="in sel ph" style="font-size:11px">— 選択 —</div></td><td><div class="in num">1.5</div></td><td>✕</td></tr>
+          <tr class="l" style="--c:var(--c-meet)"><td><div class="in sel ph">（なし）</div></td><td><div class="in sel"><span class="cat" style="--c:var(--c-meet)">会議</span></div></td><td><div class="in ph">—</div></td><td><div class="in">週次定例</div></td><td><div class="in sel ph" style="font-size:11px">— 選択 —</div></td><td><div class="in num">1.5</div></td><td>✕</td></tr>
+        </table>
+      </div>
+
+      <!-- 終業前 -->
+      <div class="card" style="margin-top:12px">
+        <div class="card-head" style="background:var(--pm-soft);border-bottom:2px solid var(--pm)">
+          <h3 style="color:var(--pm)">🌙 終業前 — 本日やったこと</h3><span class="chip ng">未保存の変更あり</span><span class="sp"></span><span class="btn">⇩ 予定から取り込む</span><span class="btn">＋ 行を追加</span>
+        </div>
+        <table class="g">
+          <tr><th style="width:96px">工程</th><th style="width:130px">案件名</th><th>作業内容</th><th style="width:70px">実績(h)</th><th style="width:150px">進捗率</th><th style="width:84px">状況</th><th style="width:28px"></th></tr>
+          <tr class="l" style="--c:var(--c-make)"><td><div class="in sel"><span class="cat" style="--c:var(--c-make)">製造</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP341 修正・単体テスト</div></td><td><div class="in num">4.5</div></td><td><div class="in num">60 %</div><div class="bar-h" style="margin-top:3px"><span style="width:60%"></span></div></td><td><div class="in sel">実施中</div></td><td>✕</td></tr>
+          <tr class="l" style="--c:var(--c-review)"><td><div class="in sel"><span class="cat" style="--c:var(--c-review)">レビュー</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP338 コードレビュー</div></td><td><div class="in num">1.0</div></td><td><div class="in num ph" style="border-color:var(--danger);background:#fef2f2">必須</div></td><td><div class="in sel">実施中</div></td><td>✕</td></tr>
+        </table>
+      </div>
+
+      <div class="stick" style="margin-top:12px;border-radius:0 0 12px 12px">
+        <span class="muted">終業前：2件 / 5.5h ・ 進捗率未入力 1 件</span><span class="sp"></span>
+        <span class="btn pri">💾 保存（始業前・終業前をまとめて）</span><span class="kbd">Ctrl</span>+<span class="kbd">S</span>
+      </div>
+
+      <div class="card" style="margin-top:12px;padding:8px 14px"><div class="row"><b>👥 チームの入力状況</b><span class="chip ok">始業前 9/13</span><span class="chip ng">終業前 2/13</span><span class="sp"></span><span class="btn">▼ 開く</span></div></div>
+    </div>
+  </div>
+  <ul class="callouts">
+    <li><b>①</b>PJCD／作業コードを 1 列（2 段表示）にまとめ、作業内容の幅を確保。横スクロールなし。</li>
+    <li><b>③</b>状況・合計・KPI を上部の「サマリ帯」1 枚に集約。工程別の色で今日の時間配分が一目で分かる。</li>
+    <li><b>④</b>保存ボタンは画面下に固定した 1 つだけ。未保存の表には「未保存の変更あり」を表示。</li>
+    <li><b>⑤</b>進捗率が未入力の行は赤枠で強調（保存前に気づける）。</li>
+    <li><b>⑥</b>チーム状況は既定で折りたたみ、件数だけ表示。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 案B -->
+<section class="plan" id="b">
+  <h2>案B 予実一体シート <span class="rec">おすすめ</span></h2>
+  <p class="lead">1 つの作業を <b>1 行</b> で扱い、行の左半分が「☀ 予定」、右半分が「🌙 実績」の 1 枚の表にします。朝は左半分だけ入力し、夕方は同じ行の右半分を埋めるだけ。「予定から取り込む」操作が不要になり、予定と実績の差も行ごとに見えます。</p>
+  <div class="pc">
+    <div class="p"><b>良い点</b><ul><li>朝と夕方で同じ表を使うので覚えることが少ない</li><li>夕方は「実績h・進捗率・状況」の 3 項目を埋めるだけ（工程・案件・作業内容は朝の入力を流用）</li><li>予定との差（＋0.5h など）が行ごとに分かる</li><li>予定外の作業は「＋ 予定外の作業」で追加（左半分は空欄のまま）</li></ul></div>
+    <div class="c"><b>気になる点</b><ul><li>実装コストは中程度（予定と実績を sourceId で 1 行に組む処理が必要。データ構造は今のままで可）</li><li>予定と実績で工程や作業内容を変えたいケースは、行内で上書き編集する形になる</li></ul></div>
+  </div>
+
+  <div class="screen">
+    <div class="bar"><span class="ttl">日次入力</span><span class="sp"></span><span class="btn">👤 岡本 央渉</span></div>
+    <div class="body">
+      <div class="card" style="padding:10px 14px">
+        <div class="row">
+          <span class="btn">‹</span><b style="font-size:15px">10/21（水）本日</b><span class="btn">›</span><span class="btn">📅</span>
+          <span style="margin-left:14px">☀ <span class="chip ok">✓ 始業前 7.0h</span></span>
+          <span>🌙 <span class="chip ng">終業前 未入力</span></span>
+          <span class="sp"></span><span class="btn">⧉ 前営業日を複製</span><span class="btn">📌 取組み予定</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px;overflow:hidden">
+        <table class="g">
+          <tr>
+            <th colspan="4" style="background:var(--surface-2)">作業</th>
+            <th colspan="1" style="background:var(--am-soft);color:var(--am);border-left:2px solid var(--am)">☀ 予定</th>
+            <th colspan="4" style="background:var(--pm-soft);color:var(--pm);border-left:2px solid var(--pm)">🌙 実績（終業前に入力）</th>
+            <th></th>
+          </tr>
+          <tr>
+            <th style="width:96px">工程</th><th style="width:120px">案件名</th><th>作業内容</th><th style="width:110px">取組み予定</th>
+            <th style="width:64px;border-left:2px solid var(--am)">予定h</th>
+            <th style="width:64px;border-left:2px solid var(--pm)">実績h</th><th style="width:48px">差</th><th style="width:190px">進捗率</th><th style="width:76px">状況</th><th style="width:24px"></th>
+          </tr>
+          <tr class="l" style="--c:var(--c-make)">
+            <td><div class="in sel"><span class="cat" style="--c:var(--c-make)">製造</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP341 修正・単体テスト</div><div class="muted" style="margin-top:2px">C0A6A025G0 / A000000005</div></td><td><div class="in sel" style="font-size:11px">SDLP341 製造</div></td>
+            <td style="border-left:2px solid var(--am)"><div class="in num">4.0</div></td>
+            <td style="border-left:2px solid var(--pm)"><div class="in num">4.5</div></td><td style="color:var(--danger);font-size:11px">+0.5</td>
+            <td><div class="seg"><span>0</span><span>25</span><span class="on">50</span><span>75</span><span>100</span></div></td>
+            <td><div class="in sel">実施中</div></td><td>✕</td>
+          </tr>
+          <tr class="l" style="--c:var(--c-review)">
+            <td><div class="in sel"><span class="cat" style="--c:var(--c-review)">レビュー</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP338 コードレビュー</div></td><td><div class="in sel ph" style="font-size:11px">（なし）</div></td>
+            <td style="border-left:2px solid var(--am)"><div class="in num">1.5</div></td>
+            <td style="border-left:2px solid var(--pm)"><div class="in num focus">1.0</div></td><td style="color:var(--ok);font-size:11px">−0.5</td>
+            <td><div class="seg" style="border-color:var(--danger)"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div> <span class="chip ng">必須</span></td>
+            <td><div class="in sel">実施中</div></td><td>✕</td>
+          </tr>
+          <tr class="l" style="--c:var(--c-meet)">
+            <td><div class="in sel"><span class="cat" style="--c:var(--c-meet)">会議</span></div></td><td><div class="in ph">—</div></td><td><div class="in">週次定例</div></td><td><div class="in sel ph" style="font-size:11px">（なし）</div></td>
+            <td style="border-left:2px solid var(--am)"><div class="in num">1.5</div></td>
+            <td style="border-left:2px solid var(--pm)"><div class="in num ph">1.5</div></td><td></td>
+            <td><div class="seg"><span>0</span><span>25</span><span>50</span><span>75</span><span class="on">100</span></div></td>
+            <td><div class="in sel">完了</div></td><td>✕</td>
+          </tr>
+          <tr class="l" style="--c:var(--c-test);background:#fafaff">
+            <td><div class="in sel"><span class="cat" style="--c:var(--c-test)">問合せ対応</span></div></td><td><div class="in ph">—</div></td><td><div class="in">本番障害の問合せ</div></td><td></td>
+            <td style="border-left:2px solid var(--am)"><span class="chip gray">予定外</span></td>
+            <td style="border-left:2px solid var(--pm)"><div class="in num">0.5</div></td><td></td>
+            <td><div class="seg"><span>0</span><span>25</span><span>50</span><span>75</span><span class="on">100</span></div></td>
+            <td><div class="in sel">完了</div></td><td>✕</td>
+          </tr>
+          <tr><td colspan="10" style="padding:8px"><span class="btn ghost">＋ 作業を追加（予定）</span> <span class="btn ghost">＋ 予定外の作業を追加（実績のみ）</span></td></tr>
+          <tr style="background:var(--surface-2);font-weight:700">
+            <td colspan="4" style="text-align:right">合計</td>
+            <td style="border-left:2px solid var(--am);text-align:right">7.0h</td>
+            <td style="border-left:2px solid var(--pm);text-align:right">7.5h</td><td style="font-size:11px;color:var(--danger)">+0.5</td>
+            <td colspan="3"><div class="hrs" style="width:200px;display:inline-flex"><span style="width:60%;background:var(--c-make)"></span><span style="width:13%;background:var(--c-review)"></span><span style="width:20%;background:var(--c-meet)"></span><span style="width:7%;background:var(--c-test)"></span></div> <span class="muted">基準 7.5h</span></td>
+          </tr>
+        </table>
+        <div class="stick">
+          <span class="muted">未保存の変更 2 件 ・ 進捗率未入力 1 件</span><span class="sp"></span>
+          <span class="btn">☀ 予定だけ保存</span><span class="btn pri">💾 保存</span><span class="kbd">Ctrl</span>+<span class="kbd">S</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px;padding:8px 14px"><div class="row"><b>👥 チームの入力状況</b><span class="chip ok">始業前 9/13</span><span class="chip ng">終業前 2/13</span><span class="sp"></span><span class="btn">▼ 開く</span></div></div>
+    </div>
+  </div>
+  <ul class="callouts">
+    <li><b>②</b>予定と実績を同じ行に並べて「差」を自動表示。夕方の「⇩ 予定から取り込む」は不要（実績h は予定h を薄字で初期表示し、そのまま確定もできる）。</li>
+    <li><b>⑤</b>進捗率はワンクリックのボタン（0/25/50/75/100）。60% などの細かい値はボタン上で数字キーを打てば直接入力。未入力は「必須」バッジで強調。</li>
+    <li><b>④</b>保存は 1 つ。朝のうちは「予定だけ保存」でも OK（終業前の必須チェックを掛けない）。</li>
+    <li><b>①</b>PJCD・作業コードは作業内容の下に小さく表示し、行をクリックしたときだけ選択欄を展開。</li>
+    <li>時間帯で入力欄のフォーカスを自動調整（午前は予定h、15 時以降は実績h 列を強調）すると、さらに迷いにくくなります。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 案C -->
+<section class="plan" id="c">
+  <h2>案C 朝／夕モード切替</h2>
+  <p class="lead">画面上部の大きな切替で「☀ 始業前」「🌙 終業前」のどちらか 1 つだけを表示します。時刻で自動選択（例: 12 時までは始業前）。終業前モードでは、右側に朝の予定を「参照用」として小さく並べ、クリックで実績行に追加します。</p>
+  <div class="pc">
+    <div class="p"><b>良い点</b><ul><li>今やるべき入力だけが画面に出るので迷わない</li><li>表を全幅で使えるため入力欄が広い</li><li>既存のデータ構造・操作の考え方はそのまま</li></ul></div>
+    <div class="c"><b>気になる点</b><ul><li>朝の予定を直したいとき、モードを切り替える必要がある</li><li>1 日の全体像（予定と実績の比較）は別画面（予定ボード等）で見ることになる</li></ul></div>
+  </div>
+
+  <div class="screen">
+    <div class="bar"><span class="ttl">日次入力</span><span class="sp"></span><span class="btn">👤 岡本 央渉</span></div>
+    <div class="body">
+      <div class="row">
+        <span class="btn">‹</span><b style="font-size:15px">10/21（水）本日</b><span class="btn">›</span>
+        <span class="sp"></span>
+        <div style="display:flex;border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;background:#fff">
+          <div style="padding:8px 22px;border-right:1px solid var(--border)"><span>☀ 始業前</span> <span class="chip ok">✓ 7.0h</span></div>
+          <div style="padding:8px 22px;background:var(--pm);color:#fff;font-weight:700">🌙 終業前 <span class="chip" style="background:#fff;color:var(--pm)">入力中</span></div>
+        </div>
+        <span class="sp"></span><span class="btn">📌 取組み予定</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-top:12px;align-items:start">
+        <div class="card">
+          <div class="card-head" style="background:var(--pm-soft);border-bottom:2px solid var(--pm)"><h3 style="color:var(--pm)">🌙 本日やったこと</h3><span class="sp"></span><span class="btn">＋ 行を追加</span></div>
+          <table class="g">
+            <tr><th style="width:110px">工程</th><th style="width:130px">案件名</th><th>作業内容</th><th style="width:70px">実績(h)</th><th style="width:170px">進捗率</th><th style="width:84px">状況</th><th style="width:24px"></th></tr>
+            <tr class="l" style="--c:var(--c-make)"><td><div class="in sel"><span class="cat" style="--c:var(--c-make)">製造</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP341 修正・単体テスト</div></td><td><div class="in num">4.5</div></td><td><div class="row" style="gap:4px;flex-wrap:nowrap"><div style="flex:1;height:6px;background:#e2e8f0;border-radius:9px;position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:60%;background:var(--pm);border-radius:9px"></span><span style="position:absolute;left:60%;top:-4px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:#fff;border:2px solid var(--pm)"></span></div><b>60%</b></div></td><td><div class="in sel">実施中</div></td><td>✕</td></tr>
+            <tr class="l" style="--c:var(--c-review)"><td><div class="in sel"><span class="cat" style="--c:var(--c-review)">レビュー</span></div></td><td><div class="in">税制改正</div></td><td><div class="in">SDLP338 コードレビュー</div></td><td><div class="in num">1.0</div></td><td><div class="row" style="gap:4px;flex-wrap:nowrap"><div style="flex:1;height:6px;background:#fee2e2;border-radius:9px"></div><span class="chip ng">必須</span></div></td><td><div class="in sel">実施中</div></td><td>✕</td></tr>
+          </table>
+          <div class="stick"><span class="muted">2件 / 5.5h（基準 7.5h）</span><span class="sp"></span><span class="btn pri">💾 終業前を保存</span></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3 style="font-size:13px">☀ 今朝の予定（参照）</h3></div>
+          <div style="padding:8px;display:grid;gap:6px">
+            <div style="border:1px solid var(--border);border-left:3px solid var(--c-make);border-radius:8px;padding:6px 8px;opacity:.55">SDLP341 修正・単体テスト<div class="muted">製造 4.0h ・ ✓ 実績に追加済み</div></div>
+            <div style="border:1px solid var(--border);border-left:3px solid var(--c-review);border-radius:8px;padding:6px 8px;opacity:.55">SDLP338 コードレビュー<div class="muted">レビュー 1.5h ・ ✓ 追加済み</div></div>
+            <div style="border:1px solid var(--border);border-left:3px solid var(--c-meet);border-radius:8px;padding:6px 8px;display:flex;align-items:center">週次定例<span class="muted" style="margin-left:6px">会議 1.5h</span><span class="sp"></span><span class="btn">→ 追加</span></div>
+            <span class="btn" style="text-align:center">⇨ 残りをすべて実績に追加</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="callouts">
+    <li><b>①</b>1 シートだけを全幅表示するので横スクロールなし。始業前モードでは PJCD・作業コード列も十分な幅で出せる。</li>
+    <li><b>②</b>朝の予定は右の参照パネルに表示。「→ 追加」で 1 件ずつ、または「残りをすべて」で実績へ。追加済みは薄く表示。</li>
+    <li><b>⑤</b>進捗率はスライダー（10% 刻み）。ドラッグでもクリックでも入力でき、未入力は赤で表示。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 案D -->
+<section class="plan" id="d">
+  <h2>案D カード型（1 作業＝1 カード）</h2>
+  <p class="lead">表をやめ、作業ごとのカードにします。カードの上段が作業の内容、下段が「☀ 予定 → 🌙 実績」の帯。列数に縛られないため、画面幅が狭くても（ノート PC・タブレット）崩れません。</p>
+  <div class="pc">
+    <div class="p"><b>良い点</b><ul><li>横スクロールが原理的に発生しない</li><li>作業内容を 2 行で書ける・備考も入れやすい</li><li>工程の色がカード全体に付くので一覧性が高い</li></ul></div>
+    <div class="c"><b>気になる点</b><ul><li>作業が多い日（6 件以上）は縦に長くなる</li><li>表に慣れた人には Tab キーでの連続入力がしにくい</li><li>実装コストは中〜大（入力部品の作り直し）</li></ul></div>
+  </div>
+
+  <div class="screen">
+    <div class="bar"><span class="ttl">日次入力</span><span class="sp"></span><span class="btn">👤 岡本 央渉</span></div>
+    <div class="body">
+      <div class="row"><span class="btn">‹</span><b style="font-size:15px">10/21（水）本日</b><span class="btn">›</span>
+        <span style="margin-left:10px">予定 7.0h → 実績 5.5h</span><div class="hrs" style="width:180px"><span style="width:73%;background:var(--pm)"></span></div><span class="muted">基準 7.5h</span>
+        <span class="sp"></span><span class="btn">⧉ 前営業日を複製</span></div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;margin-top:12px">
+        <div class="card" style="border-top:4px solid var(--c-make)">
+          <div style="padding:10px 12px;display:grid;grid-template-columns:110px 1fr;gap:6px">
+            <div class="in sel"><span class="cat" style="--c:var(--c-make)">製造</span></div><div class="in">税制改正</div>
+            <div class="in" style="grid-column:1/3">SDLP341 修正・単体テスト</div>
+            <div class="muted" style="grid-column:1/3">📌 SDLP341 製造（10/14〜10/25） ・ C0A6A025G0 / A000000005</div>
+          </div>
+          <div style="display:grid;grid-template-columns:90px 1fr;border-top:1px solid var(--border)">
+            <div style="background:var(--am-soft);padding:8px 10px"><div class="muted" style="color:var(--am)">☀ 予定</div><b style="font-size:16px">4.0h</b></div>
+            <div style="background:var(--pm-soft);padding:8px 10px;display:grid;grid-template-columns:64px 1fr 70px;gap:6px;align-items:center">
+              <div><div class="muted" style="color:var(--pm)">🌙 実績</div><div class="in num">4.5</div></div>
+              <div><div class="muted">進捗率</div><div class="seg"><span>25</span><span class="on">50</span><span>75</span><span>100</span></div></div>
+              <div><div class="muted">状況</div><div class="in sel">実施中</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="border-top:4px solid var(--c-review)">
+          <div style="padding:10px 12px;display:grid;grid-template-columns:110px 1fr;gap:6px">
+            <div class="in sel"><span class="cat" style="--c:var(--c-review)">レビュー</span></div><div class="in">税制改正</div>
+            <div class="in" style="grid-column:1/3">SDLP338 コードレビュー</div>
+          </div>
+          <div style="display:grid;grid-template-columns:90px 1fr;border-top:1px solid var(--border)">
+            <div style="background:var(--am-soft);padding:8px 10px"><div class="muted" style="color:var(--am)">☀ 予定</div><b style="font-size:16px">1.5h</b></div>
+            <div style="background:#fef2f2;padding:8px 10px;display:grid;grid-template-columns:64px 1fr 70px;gap:6px;align-items:center">
+              <div><div class="muted" style="color:var(--pm)">🌙 実績</div><div class="in num">1.0</div></div>
+              <div><div class="muted" style="color:var(--danger)">進捗率 ※必須</div><div class="seg" style="border-color:var(--danger)"><span>25</span><span>50</span><span>75</span><span>100</span></div></div>
+              <div><div class="muted">状況</div><div class="in sel">実施中</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="border-top:4px solid var(--c-meet)">
+          <div style="padding:10px 12px;display:grid;grid-template-columns:110px 1fr;gap:6px">
+            <div class="in sel"><span class="cat" style="--c:var(--c-meet)">会議</span></div><div class="in ph">案件名</div>
+            <div class="in" style="grid-column:1/3">週次定例</div>
+          </div>
+          <div style="display:grid;grid-template-columns:90px 1fr;border-top:1px solid var(--border)">
+            <div style="background:var(--am-soft);padding:8px 10px"><div class="muted" style="color:var(--am)">☀ 予定</div><b style="font-size:16px">1.5h</b></div>
+            <div style="background:var(--pm-soft);padding:8px 10px;display:flex;align-items:center;justify-content:center"><span class="btn">🌙 実績を入力</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="border:2px dashed var(--border-strong);box-shadow:none;display:grid;place-items:center;min-height:150px;color:var(--text-2)">＋ 作業を追加</div>
+      </div>
+
+      <div class="stick" style="margin-top:12px;border-radius:10px"><span class="muted">未保存の変更 2 件 ・ 進捗率未入力 1 件</span><span class="sp"></span><span class="btn pri">💾 保存</span></div>
+    </div>
+  </div>
+  <ul class="callouts">
+    <li><b>①</b>カードは画面幅に応じて 1〜3 列に自動で並ぶ。横スクロールなし。</li>
+    <li><b>②</b>カード下段で予定と実績を左右に対比。実績未入力のカードは「🌙 実績を入力」ボタンだけを表示してスッキリ。</li>
+    <li>案B の「1 行＝予定＋実績」の考え方を、表ではなくカードで表現したもの。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 比較 -->
+<section class="plan" id="cmp">
+  <h2>比較とおすすめ</h2>
+  <table class="cmp">
+    <tr><th>観点</th><th>案A 縦並び＋整理</th><th>案B 予実一体 ★</th><th>案C 朝／夕切替</th><th>案D カード型</th></tr>
+    <tr><td>見やすさ（1 日の全体像）</td><td>○</td><td>◎</td><td>△</td><td>○</td></tr>
+    <tr><td>夕方の入力の手間</td><td>○（取り込みが必要）</td><td>◎（3 項目を埋めるだけ）</td><td>○（参照から追加）</td><td>◎</td></tr>
+    <tr><td>横スクロールの解消</td><td>○</td><td>○</td><td>◎</td><td>◎</td></tr>
+    <tr><td>キーボードでの連続入力</td><td>◎</td><td>◎</td><td>◎</td><td>△</td></tr>
+    <tr><td>今の操作からの変化</td><td>小</td><td>中</td><td>中</td><td>大</td></tr>
+    <tr><td>実装コストの目安</td><td>小（半日〜1日）</td><td>中（2〜3日）</td><td>中（1〜2日）</td><td>中〜大（3日〜）</td></tr>
+    <tr><td>データ構造の変更</td><td>不要</td><td>不要（sourceId で対応づけ）</td><td>不要</td><td>不要</td></tr>
+  </table>
+
+  <ul class="callouts" style="margin-top:16px">
+    <li><b>おすすめ</b><b style="color:var(--text)">案B（予実一体シート）</b>。「朝に書いたものを夕方に答え合わせする」という日次入力の流れにいちばん合っており、取り込み操作も不要になります。</li>
+    <li><b>段階的に進める場合</b>まず案A の共通改善（サマリ帯の集約・保存ボタン 1 つ化・進捗率の必須強調・チーム状況の折りたたみ）を入れ、その後で表を案B の形にする、という 2 段階も可能です。</li>
+    <li><b>どの案でも共通で入れたいもの</b>保存ボタンの固定表示と <span class="kbd">Ctrl</span>+<span class="kbd">S</span>／未保存の変更表示（画面を離れるときに警告）／進捗率のワンクリック入力／チーム状況の折りたたみ。</li>
+  </ul>
+</section>
+
+</main>
+
+<script>
+  document.getElementById('tabs').addEventListener('click', function (e) {
+    var k = e.target.getAttribute('data-k');
+    if (!k) return;
+    document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b === e.target); });
+    document.querySelectorAll('section.plan').forEach(function (s) { s.classList.toggle('on', s.id === k); });
+    window.scrollTo(0, 0);
+  });
+</script>
+</body>
+</html>

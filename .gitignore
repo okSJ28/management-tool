@@ -22,3 +22,10 @@ desktop.ini
 
 # Logs
 *.log
+
+# 機密データ（公開リポジトリに載せない）
+tool/data/
+tool/core/users.json
+docs/検証/
+案件管理表.html
+*.xlsx

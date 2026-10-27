@@ -28,6 +28,35 @@
     ]);
   }
 
+  /* 指定日の業務予定を「作業」単位にまとめる。実績は sourceId で予定と対応づけ、残りは予定外とする */
+  function dayItems(iso, member) {
+    var list = State.plansOnDate(iso, member);
+    var results = list.filter(function (p) { return State.planKind(p) === 'result'; });
+    var used = {};
+    var items = list.filter(function (p) { return State.planKind(p) === 'plan'; }).map(function (p) {
+      var res = null;
+      results.some(function (r) {
+        if (!used[r.id] && r.sourceId && r.sourceId === p.id) { used[r.id] = true; res = r; return true; }
+        return false;
+      });
+      return { member: p.member, plan: p, result: res, base: p };
+    });
+    results.forEach(function (r) {
+      if (!used[r.id]) items.push({ member: r.member, plan: null, result: r, base: r });
+    });
+    return items;
+  }
+  function itemPlanH(it) { return it.plan ? (it.plan.hours || 0) : 0; }
+  function itemActualH(it) {
+    if (!it.result) return 0;
+    return it.result.actualHours != null ? it.result.actualHours : itemPlanH(it);
+  }
+  function itemHoursText(it) {
+    var plan = it.plan && it.plan.hours ? U.fmtH(it.plan.hours) + 'h' : '';
+    if (!it.result) return plan;
+    return (plan || '予定外') + ' → ' + U.fmtH(itemActualH(it)) + 'h';
+  }
+
   /* ------------------------------- 担当者別 実施本数（システム別2行 × 区分 / リソース区分） */
   var VOL = { period: 'fy', scope: 'done', type: 'all' };
   var SYS_ROWS = ['ES', 'NET'];
@@ -348,9 +377,7 @@
         var work = Logic.currentWork(m);
         var head = work[0];
         var color = U.colorOf(m);
-        var todayPlans = State.plansOnDate(tdIso, m).filter(function (p) {
-          return State.planKind(p) !== 'assignment';
-        });
+        var todayPlans = dayItems(tdIso, m);
         nowGrid.appendChild(U.el('div', { class: 'card member-card', style: { cursor: 'pointer' }, onclick: function () { App.go('members', { member: m }); } }, [
           U.el('div', { class: 'member-top' }, [
             U.el('div', { class: 'avatar', style: { background: color }, text: U.initials(m) }),
@@ -370,9 +397,11 @@
           work.length > 1 ? U.el('div', { class: 'muted', style: { fontSize: '11px' }, text: 'ほか ' + (work.length - 1) + '件を並行' }) : null,
           todayPlans.length ? U.el('div', { style: { fontSize: '11px' } }, [
             U.el('div', { class: 'muted', style: { fontWeight: 700, fontSize: '10.5px' }, text: '▶ 本日の業務予定' }),
-            U.el('div', { class: 'pill-group', style: { marginTop: '3px' } }, todayPlans.slice(0, 4).map(function (p) {
+            U.el('div', { class: 'pill-group', style: { marginTop: '3px' } }, todayPlans.slice(0, 4).map(function (it) {
+              var p = it.base;
               var c = State.planColor(p.category);
-              return U.el('span', { class: 'chip', style: { background: c + '1f', color: c }, title: p.title || '', text: p.category + (p.hours ? ' ' + U.fmtNum(p.hours, 1) + 'h' : '') });
+              var h = it.plan ? itemPlanH(it) : itemActualH(it);
+              return U.el('span', { class: 'chip', style: { background: c + '1f', color: c }, title: p.title || '', text: (p.category || '—') + (h ? ' ' + U.fmtH(h) + 'h' : '') });
             }))
           ]) : null
         ]));
@@ -394,14 +423,14 @@
       }));
       root.appendChild(col);
 
-      /* --- 本日の業務予定 --- */
-      var todayAll = State.plansOnDate(tdIso).filter(function (p) {
-        return State.planKind(p) !== 'assignment';
-      });
+      /* --- 本日の業務予定（予定と実績は 1 作業 1 行にまとめる） --- */
+      var todayAll = dayItems(tdIso);
+      var todayActual = U.sum(todayAll, itemActualH);
       var planCard = U.el('div', { class: 'card mt16' }, [
         U.el('div', { class: 'card-head' }, [
           U.el('h3', { text: '📝 本日の業務予定' }),
-          U.el('span', { class: 'sub', text: todayAll.length + '件 / 予定工数 ' + U.fmtNum(U.sum(todayAll, function (p) { return p.hours; }), 1) + 'h' }),
+          U.el('span', { class: 'sub', text: todayAll.length + '件 / 予定工数 ' + U.fmtH(U.sum(todayAll, itemPlanH)) + 'h' +
+            (todayAll.some(function (it) { return it.result; }) ? ' / 実績 ' + U.fmtH(todayActual) + 'h' : '') }),
           U.el('div', { class: 'tools' }, [
             U.el('button', { class: 'btn btn-sm', text: '業務予定を開く', onclick: function () { App.go('planBoard'); } })
           ])
@@ -411,21 +440,24 @@
       if (!todayAll.length) {
         planBody.appendChild(U.el('div', { class: 'empty', html: '<span class="big">📝</span>本日の業務予定は登録されていません<br><small>「業務予定管理」から入力できます</small>' }));
       } else {
-        var byMember = U.groupBy(todayAll, function (p) { return p.member; });
+        var byMember = U.groupBy(todayAll, function (it) { return it.member; });
         var grid = U.el('div', { class: 'grid k3', style: { padding: '6px' } });
         byMember.forEach(function (list, name) {
+          var hasRes = list.some(function (it) { return it.result; });
           grid.appendChild(U.el('div', { style: { border: '1px solid var(--border)', borderRadius: '9px', padding: '8px 10px' } }, [
             U.el('div', { class: 'row-flex' }, [
               U.el('span', { class: 'avatar', style: { background: U.colorOf(name), width: '22px', height: '22px', flex: '0 0 22px', fontSize: '9px' }, text: U.initials(name) }),
               U.el('b', { text: name }),
-              U.el('span', { class: 'muted mono', style: { marginLeft: 'auto' }, text: U.fmtNum(U.sum(list, function (p) { return p.hours; }), 1) + 'h' })
+              U.el('span', { class: 'muted mono', style: { marginLeft: 'auto' }, title: hasRes ? '予定 → 実績' : '予定',
+                text: U.fmtH(U.sum(list, itemPlanH)) + 'h' + (hasRes ? ' → ' + U.fmtH(U.sum(list, itemActualH)) + 'h' : '') })
             ]),
-            U.el('div', { class: 'mini-list', style: { marginTop: '4px' } }, list.map(function (p) {
+            U.el('div', { class: 'mini-list', style: { marginTop: '4px' } }, list.map(function (it) {
+              var p = it.base;
               var c = State.planColor(p.category);
               return U.el('div', { class: 'mini-row' }, [
                 U.el('span', { class: 'chip', style: { background: c + '1f', color: c }, text: p.category || '—' }),
                 U.el('span', { class: 'grow', text: p.title || p.project || '' }),
-                U.el('span', { class: 'muted mono nowrap', text: p.hours ? U.fmtNum(p.hours, 1) + 'h' : '' })
+                U.el('span', { class: 'muted mono nowrap', text: itemHoursText(it) })
               ]);
             }))
           ]));
@@ -449,7 +481,7 @@
           labels: months.map(U.monthLabel), area: true,
           series: [
             { name: '完了件数', values: doneCount, color: '#2563eb' },
-            { name: '換算step(÷10)', values: steps.map(function (v) { return Math.round(v / 10); }), color: '#7c3aed' }
+            { name: '換算step', values: steps.map(function (v) { return Math.round(v); }), color: '#7c3aed', axis: 'right' }
           ], height: 240
         });
       }));

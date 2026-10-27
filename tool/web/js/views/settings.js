@@ -17,10 +17,10 @@
   ];
 
   var SETTING_FIELDS = [
-    { key: 'baseCoef', label: '母体step 係数', hint: '換算step = 母体×係数 + 新規×係数 + 修正×係数' },
+    { key: 'baseCoef', label: '母体step 係数', hint: '換算step = 新規: 新規×係数 ／ 修正: 母体×係数 + 修正×係数' },
     { key: 'newCoef', label: '新規step 係数' },
     { key: 'modCoef', label: '修正step 係数' },
-    { key: 'monthHours', label: '月換算生産性の基準時間', hint: '(新規+修正)÷総工数×この値' },
+    { key: 'monthHours', label: '月換算生産性の基準時間', hint: '(新規は新規step／修正は修正step)÷総工数×この値' },
     { key: 'workHoursPerDay', label: '1人日あたり時間' },
     { key: 'fiscalStartMonth', label: '年度開始月' },
     { key: 'targetProdMonth', label: '目標 月換算生産性' },
@@ -80,6 +80,9 @@
         }
       })
     ]));
+    if (key === 'members') {
+      body.appendChild(U.el('p', { class: 'muted mt8', style: { fontSize: '11.5px' }, text: '✕ で外した担当者は、過去のタスクに名前が残っていても一覧・入力状況に表示されなくなります（タスクの記録はそのまま残ります）。' }));
+    }
     box.appendChild(body);
     return box;
   }
@@ -282,14 +285,154 @@
     return card;
   }
 
+  /* ---- ユーザー管理（ログインID・権限） ---- */
+
+  function userEditor(user, done) {
+    var isNew = !user;
+    var u = Object.assign({ id: '', name: '', member: '', role: 'user' }, user || {});
+    var listId = 'userMemberList';
+    var members = U.el('datalist', { id: listId });
+    State.members().forEach(function (m) { members.appendChild(U.el('option', { value: m })); });
+
+    var id = U.el('input', { type: 'text', value: u.id, readonly: !isNew, placeholder: '例: A250001', autocomplete: 'off' });
+    var name = U.el('input', { type: 'text', value: u.name, placeholder: '例: 山田 太郎' });
+    var member = U.el('input', { type: 'text', value: u.member, list: listId, placeholder: '空欄なら氏名の姓' });
+    var role = U.el('select', {});
+    ['user', 'admin', 'owner'].forEach(function (r) {
+      role.appendChild(U.el('option', { value: r, text: State.roleLabel(r), selected: u.role === r }));
+    });
+
+    var box = U.el('div', {}, [
+      members,
+      U.el('div', { class: 'field' }, [U.el('label', {}, [document.createTextNode('ID'), isNew ? U.el('span', { class: 'req', text: '*' }) : null]), id,
+        U.el('div', { class: 'hint', text: isNew ? '半角英数字。初期パスワードはIDと同じになります。' : 'IDは変更できません。' })]),
+      U.el('div', { class: 'field mt8' }, [U.el('label', {}, [document.createTextNode('氏名'), U.el('span', { class: 'req', text: '*' })]), name]),
+      U.el('div', { class: 'field mt8' }, [U.el('label', { text: '担当者名' }), member,
+        U.el('div', { class: 'hint', text: 'タスク・予定の担当者名と一致させてください。更新者としても記録されます。未登録ならメンバーに追加されます。' })]),
+      U.el('div', { class: 'field mt8' }, [U.el('label', { text: '権限' }), role,
+        U.el('div', { class: 'hint', text: '管理者: ユーザー管理・設定の編集・バックアップ復元ができます。特権管理者: 管理者と同じ権限で、閲覧が中心の人向けです（担当者一覧・日次入力の対象に含めません）。' })])
+    ]);
+
+    U.openDrawer(isNew ? 'ユーザー追加' : 'ユーザー編集', box, [
+      U.el('div', { class: 'spacer' }),
+      U.el('button', { class: 'btn', text: 'キャンセル', onclick: U.closeDrawer }),
+      U.el('button', {
+        class: 'btn btn-primary', text: isNew ? '追加' : '保存', onclick: function () {
+          var payload = { name: name.value.trim(), member: member.value.trim(), role: role.value };
+          if (!payload.name) { U.toast('氏名を入力してください', 'warn'); return; }
+          var call;
+          if (isNew) {
+            payload.id = id.value.trim();
+            if (!payload.id) { U.toast('IDを入力してください', 'warn'); return; }
+            call = API.addUser(payload);
+          } else {
+            call = API.updateUser(u.id, payload);
+          }
+          U.loading(true);
+          call.then(function (r) {
+            if (r.masters) State.masters = r.masters;
+            if (State.account && r.user.id === State.account.id) {
+              // 自分の権限を外した場合は設定画面を開けなくなるので開き直す
+              if (r.user.role !== State.account.role) { location.reload(); return; }
+              State.account = r.user;
+            }
+            U.closeDrawer();
+            U.toast(isNew ? r.user.name + ' を追加しました（初期パスワード = ID）' : '保存しました', 'ok', 4000);
+            done();
+          }).catch(function (e) { U.toast(e.message, 'err'); })
+            .finally(function () { U.loading(false); });
+        }
+      })
+    ]);
+    (isNew ? id : name).focus();
+  }
+
+  function userManager() {
+    var card = U.el('div', { class: 'card' });
+    var sub = U.el('span', { class: 'sub', text: '読み込み中…' });
+    card.appendChild(U.el('div', { class: 'card-head' }, [
+      U.el('h3', { text: '👥 ユーザー管理' }), sub,
+      U.el('div', { class: 'spacer', style: { flex: 1 } }),
+      U.el('button', { class: 'btn btn-sm btn-primary', text: '＋ ユーザー追加', onclick: function () { userEditor(null, function () { App.render(); }); } })
+    ]));
+    var body = U.el('div', { class: 'card-body' });
+    card.appendChild(body);
+
+    function rowActions(u) {
+      var self = State.account && State.account.id === u.id;
+      return U.el('td', { style: { whiteSpace: 'nowrap' } }, [
+        U.el('button', { class: 'btn btn-sm', text: '編集', onclick: function () { userEditor(u, function () { App.render(); }); } }),
+        ' ',
+        U.el('button', {
+          class: 'btn btn-sm', text: 'PW初期化', title: 'パスワードをIDと同じ値に戻します', onclick: function () {
+            U.confirmDialog('パスワード初期化', u.name + '（' + u.id + '）のパスワードをIDと同じ値に戻します。よろしいですか？', '初期化する').then(function (ok) {
+              if (!ok) return;
+              API.updateUser(u.id, { resetPassword: true }).then(function () {
+                if (self) { location.reload(); return; }
+                U.toast('パスワードを初期化しました。本人に変更してもらってください。', 'ok', 4000);
+              }).catch(function (e) { U.toast(e.message, 'err'); });
+            });
+          }
+        }),
+        ' ',
+        U.el('button', {
+          class: 'btn btn-sm btn-danger', text: '削除', disabled: self, title: self ? '自分自身は削除できません' : '', onclick: function () {
+            U.confirmDialog('ユーザー削除', u.name + '（' + u.id + '）を削除します。登録済みのタスクや予定は残ります。よろしいですか？', '削除する').then(function (ok) {
+              if (!ok) return;
+              API.deleteUser(u.id).then(function () {
+                U.toast('削除しました', 'ok');
+                load();
+              }).catch(function (e) { U.toast(e.message, 'err'); });
+            });
+          }
+        })
+      ]);
+    }
+
+    function draw(users) {
+      U.clear(body);
+      sub.textContent = users.length + '名（管理者 ' + users.filter(function (u) { return u.role === 'admin' || u.role === 'owner'; }).length + '名）';
+      var tbl = U.el('table', { class: 'grid-table' });
+      tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['ID', '氏名', '担当者名', '権限', '操作'].map(function (h) {
+        return U.el('th', { text: h });
+      }))]));
+      var tb = U.el('tbody');
+      users.forEach(function (u) {
+        tb.appendChild(U.el('tr', {}, [
+          U.el('td', { text: u.id, style: { fontFamily: 'var(--mono)' } }),
+          U.el('td', { class: 'strong', text: u.name }),
+          U.el('td', { text: u.member || '—' }),
+          U.el('td', {}, [U.el('span', { class: 'tag' + (u.role === 'admin' || u.role === 'owner' ? ' role-admin' : ''), text: State.roleLabel(u.role) })]),
+          rowActions(u)
+        ]));
+      });
+      tbl.appendChild(tb);
+      body.appendChild(U.el('div', { class: 'table-wrap' }, [tbl]));
+      body.appendChild(U.el('p', { class: 'muted mt8', style: { fontSize: '11.5px' }, text: '新規ユーザーと「PW初期化」後のパスワードはIDと同じです。ログイン後、右上のアカウントメニューから各自で変更してもらってください。' }));
+    }
+
+    function load() {
+      API.users().then(function (r) { draw(r.users || []); })
+        .catch(function (e) {
+          U.clear(body);
+          body.appendChild(U.el('p', { class: 'muted', text: 'ユーザー一覧を取得できませんでした: ' + e.message }));
+        });
+    }
+    load();
+    return card;
+  }
+
   Views.settings = {
     title: '設定',
-    desc: 'マスタ・計算式パラメータの管理',
+    desc: 'ユーザー・マスタ・計算式パラメータの管理（管理者のみ）',
     icon: '⚙',
+    adminOnly: true,
     render: function (root) {
+      root.appendChild(userManager());
+
       /* --- 計算パラメータ --- */
       var settings = Object.assign({}, State.settings());
-      var card = U.el('div', { class: 'card' }, [
+      var card = U.el('div', { class: 'card mt16' }, [
         U.el('div', { class: 'card-head' }, [U.el('h3', { text: '計算パラメータ' }), U.el('span', { class: 'sub', text: '変更すると全データの指標が再計算されます' })])
       ]);
       var grid = U.el('div', { class: 'form-grid' });
@@ -316,7 +459,7 @@
                 .finally(function () { U.loading(false); });
             }
           }),
-          U.el('span', { class: 'muted', style: { fontSize: '11.5px' }, text: '現在の式: 換算step = 母体×' + settings.baseCoef + ' + 新規×' + settings.newCoef + ' + 修正×' + settings.modCoef })
+          U.el('span', { class: 'muted', style: { fontSize: '11.5px' }, text: '現在の式: 換算step = 新規: 新規×' + settings.newCoef + ' ／ 修正: 母体×' + settings.baseCoef + ' + 修正×' + settings.modCoef })
         ])
       ]);
       card.appendChild(body);

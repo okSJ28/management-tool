@@ -98,6 +98,10 @@
     dec = dec === undefined ? (Math.abs(n) < 10 && n % 1 !== 0 ? 1 : 0) : dec;
     return n.toLocaleString('ja-JP', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   }
+  /* 工数表示（0.25h 刻みも丸めずに出す） */
+  function fmtH(v) {
+    return fmtNum(v, Math.round(Math.abs(num(v) || 0) * 100) % 10 ? 2 : 1);
+  }
   function sum(arr, fn) {
     return arr.reduce(function (a, x) { var v = num(fn ? fn(x) : x); return a + (v || 0); }, 0);
   }
@@ -142,14 +146,21 @@
   }
 
   /* ------------------------------------------------ UI */
+  /* エラーは見逃さないようクリックで閉じるまで残す。ms=0 でも常駐 */
   function toast(msg, kind, ms) {
     var box = document.getElementById('toasts');
-    var t = el('div', { class: 'toast ' + (kind || ''), text: msg });
-    box.appendChild(t);
-    setTimeout(function () {
+    var sticky = kind === 'err' || ms === 0;
+    var t = el('div', { class: 'toast ' + (kind || '') + (sticky ? ' sticky' : ''), text: msg, title: 'クリックで閉じる' });
+    function dismiss() {
+      if (!t.parentNode) return;
       t.style.transition = 'opacity .25s'; t.style.opacity = '0';
       setTimeout(function () { t.remove(); }, 260);
-    }, ms || 2800);
+    }
+    t.addEventListener('click', dismiss);
+    box.appendChild(t);
+    var stickies = box.querySelectorAll('.toast.sticky');
+    if (stickies.length > 5) stickies[0].remove();
+    if (!sticky) setTimeout(dismiss, ms || 2800);
   }
 
   function loading(on, message) {
@@ -208,7 +219,7 @@
     today: today, parseDate: parseDate, iso: iso, pad: pad, addDays: addDays, diffDays: diffDays,
     monthKey: monthKey, monthLabel: monthLabel, fmtDate: fmtDate, fmtDateFull: fmtDateFull,
     isWeekend: isWeekend, fiscalYear: fiscalYear, fiscalMonths: fiscalMonths, MS_DAY: MS_DAY,
-    num: num, fmtNum: fmtNum, sum: sum, avg: avg, groupBy: groupBy, uniq: uniq, debounce: debounce,
+    num: num, fmtNum: fmtNum, fmtH: fmtH, sum: sum, avg: avg, groupBy: groupBy, uniq: uniq, debounce: debounce,
     PALETTE: PALETTE, colorOf: colorOf, initials: initials,
     toast: toast, loading: loading, confirmDialog: confirmDialog,
     openDrawer: openDrawer, closeDrawer: closeDrawer, download: download

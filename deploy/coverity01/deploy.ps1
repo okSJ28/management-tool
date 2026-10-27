@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    coverity01 (172.30.4.89) へ業務管理ツールを更新デプロイします。
+    coverity01 (172.30.4.89) へ第2開発管理ツールを更新デプロイします。
 
 .DESCRIPTION
     1. ローカルで Python / JavaScript の構文チェック
@@ -130,9 +130,17 @@ if (-not $healthy) {
 }
 Ok 'ヘルスチェック応答あり'
 
-$boot = $opener.GetStringAsync("$Url/api/bootstrap").GetAwaiter().GetResult() | ConvertFrom-Json
-Ok ("タスク {0} 件 / 予定・実績 {1} 件 / 担当者 {2} 名" -f `
-        $boot.tasks.Count, $boot.plans.Count, $boot.masters.members.Count)
+# データ取得はログイン必須のため、未ログインで拒否されることを確認する
+$status = [int]$opener.GetAsync("$Url/api/bootstrap").GetAwaiter().GetResult().StatusCode
+if ($status -ne 401) { Ng "未ログインのデータ取得が拒否されません (HTTP $status)"; exit 1 }
+Ok 'ログイン必須（未ログインは 401）'
+$py = @"
+import sqlite3
+c = sqlite3.connect('file:$RemoteDir/data/store.sqlite3?mode=ro', uri=True)
+print(*[c.execute('select count(*) from ' + t).fetchone()[0] for t in ('tasks', 'plans', 'users')])
+"@
+$n = "$($py | ssh $SshHost python3 -)".Trim() -split '\s+'
+Ok ("タスク {0} 件 / 予定・実績 {1} 件 / ユーザー {2} 名" -f $n[0], $n[1], $n[2])
 
 ssh $SshHost "docker ps --filter name=dpm-tool --format '  {{.Names}} | {{.Status}} | {{.Ports}}'"
 

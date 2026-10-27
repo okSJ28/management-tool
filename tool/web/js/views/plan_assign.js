@@ -8,7 +8,7 @@
   var A = { start: null, span: 28, member: '', status: '', showDone: true };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
-  function me() { return State.user() || (State.members()[0] || ''); }
+  function me() { return State.me(); }
 
   function projectDatalist() {
     var dl = document.getElementById('dl_assign_project');
@@ -104,7 +104,7 @@
       var linked = State.dailyOf(base.id).length;
       field('日次の紐づき', U.el('div', { class: 'muted', style: { fontSize: '11.5px' } }, [
         U.el('div', { text: '紐づく日次入力: ' + linked + '件（実績 ' + roll.results.length + '件）' }),
-        U.el('div', { text: '実績工数の積上: ' + U.fmtNum(roll.actualHours, 1) + 'h' }),
+        U.el('div', { text: '実績工数の積上: ' + U.fmtH(roll.actualHours) + 'h' }),
         U.el('div', { text: '最新進捗: ' + (roll.progress === null ? '—' : roll.progress + '%' + (roll.progressAt ? '（' + U.fmtDateFull(roll.progressAt) + '）' : '')) })
       ]), true);
     }
@@ -234,9 +234,9 @@
       root.appendChild(U.el('div', { class: 'grid k4' }, [
         Views._helpers.kpi('取組み予定', String(all.length), '件',
           '表示期間内 ' + list.length + '件 / 完了 ' + done + '件', 'blue'),
-        Views._helpers.kpi('予定工数', U.fmtNum(planned, 1), 'h',
+        Views._helpers.kpi('予定工数', U.fmtH(planned), 'h',
           '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
-        Views._helpers.kpi('実績積上', U.fmtNum(actual, 1), 'h',
+        Views._helpers.kpi('実績積上', U.fmtH(actual), 'h',
           planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
         Views._helpers.kpi('未紐づけの実績', String(unlinked), '件',
           '表示期間内で取組み予定に紐づいていない日次実績', unlinked ? 'amber' : 'green')
@@ -306,10 +306,10 @@
             }, title: a.project || '', text: a.project || ''
           })
         ]));
-        tr.appendChild(U.el('td', { class: 'col-pin num', text: a.hours ? U.fmtNum(a.hours, 1) : '' }));
+        tr.appendChild(U.el('td', { class: 'col-pin num', text: a.hours ? U.fmtH(a.hours) : '' }));
         tr.appendChild(U.el('td', {
           class: 'col-pin num', style: { color: roll.actualHours ? 'var(--ok)' : null },
-          text: roll.actualHours ? U.fmtNum(roll.actualHours, 1) : ''
+          text: roll.actualHours ? U.fmtH(roll.actualHours) : ''
         }));
         tr.appendChild(U.el('td', {
           class: 'col-pin num',

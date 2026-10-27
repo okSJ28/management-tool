@@ -122,7 +122,8 @@
         U.el('p', { class: 'muted', style: { fontSize: '11.5px' }, text: 'CSVはUTF-8(BOM付き)で出力されるため、Excelでそのまま開けます。' })
       ]));
 
-      root.appendChild(section('♻ バックアップから復元', '書き出したJSONを読み込み、現在のデータを置き換えます', [
+      /* 復元は設定も上書きするため管理者のみ */
+      if (State.isAdmin()) root.appendChild(section('♻ バックアップから復元', '書き出したJSONを読み込み、現在のデータを置き換えます（管理者のみ）', [
         (function () {
           var input = U.el('input', { type: 'file', accept: '.json,application/json' });
           var btn = U.el('button', {
@@ -179,9 +180,9 @@
             ]),
           U.el('hr', { class: 'sep' }),
           U.el('div', { class: 'row-flex' }, [
-            U.el('span', { class: 'muted', text: '現在の利用者:' }),
-            U.el('strong', { text: State.user() || '（未設定）' }),
-            U.el('span', { class: 'muted', style: { fontSize: '11px' }, text: '右上のボタンから変更できます。更新者として記録されます。' })
+            U.el('span', { class: 'muted', text: 'ログイン中:' }),
+            U.el('strong', { text: State.account ? State.account.name + '（' + State.account.id + '）' : '—' }),
+            U.el('span', { class: 'muted', style: { fontSize: '11px' }, text: 'ログイン中のユーザーが更新者として記録されます。' })
           ])
         ])
       ]));
@@ -196,7 +197,19 @@
     }
   };
 
+  /* 全件置換は既存データを消すため必ず確認を挟む */
+  function confirmMode() {
+    if (mode !== 'replace') return Promise.resolve(true);
+    return U.confirmDialog('全件置換の確認',
+      '登録済みのタスク ' + State.tasks.length + ' 件をすべて削除し、取込内容で置き換えます。\n' +
+      '元に戻すには「バックアップから復元」が必要です。通常は「更新＋追加」を使ってください。', '置換する');
+  }
+
   function doExcelImport(name) {
+    confirmMode().then(function (ok) { if (ok) runExcelImport(name); });
+  }
+
+  function runExcelImport(name) {
     U.loading(true);
     API.importExcel(name, mode, true).then(function (r) {
       var detail = Object.keys(r.detail || {}).map(function (k) { return k + ' ' + r.detail[k] + '行'; }).join(' / ');
@@ -207,13 +220,33 @@
       .finally(function () { U.loading(false); });
   }
 
+  /* Excelの「CSV(カンマ区切り)」は Shift_JIS で保存されるため、UTF-8 で読めなければ Shift_JIS として読む */
   function readCsvFile(file) {
     var reader = new FileReader();
-    reader.onload = function () { importCsvText(String(reader.result)); };
-    reader.readAsText(file, 'utf-8');
+    reader.onload = function () {
+      var bytes = new Uint8Array(reader.result);
+      var text;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch (e) {
+        try {
+          text = new TextDecoder('shift_jis').decode(bytes);
+          U.toast('文字コードを Shift_JIS と判定して読み込みました', 'ok', 4000);
+        } catch (e2) {
+          U.toast('CSVの文字コードを判別できません。UTF-8 で保存し直してください。', 'err');
+          return;
+        }
+      }
+      importCsvText(text.replace(/^\uFEFF/, ''));
+    };
+    reader.readAsArrayBuffer(file);
   }
 
   function importCsvText(text) {
+    confirmMode().then(function (ok) { if (ok) runCsvImport(text); });
+  }
+
+  function runCsvImport(text) {
     U.loading(true);
     API.importCsv(text, csvType, mode).then(function (r) {
       U.toast('CSV取込完了: 追加 ' + r.added + ' 件 / 更新 ' + r.updated + ' 件', 'ok', 5000);

@@ -39,6 +39,20 @@
     var step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
     return step * exp;
   }
+  // 4分割した目盛りが切りのよい値になる最大値
+  function niceAxisMax(v) {
+    if (!v || v <= 0) return 4;
+    var rough = v / 4;
+    var exp = Math.pow(10, Math.floor(Math.log10(rough)));
+    var steps = exp >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i] * exp >= rough - 1e-9) return steps[i] * exp * 4;
+    }
+    return 40 * exp;
+  }
+  function textWidth(s) {
+    return String(s).split('').reduce(function (a, ch) { return a + (ch.charCodeAt(0) > 0xff ? 10.5 : 6); }, 0);
+  }
   function fmt(v) {
     if (v === null || v === undefined) return '';
     if (Math.abs(v) >= 10000) return (v / 10000).toFixed(1) + '万';
@@ -178,21 +192,34 @@
     return mount(container, svg);
   }
 
-  /* --------------------------------------------------- 折れ線 */
+  /* --------------------------------------------------- 折れ線（series[].axis = 'right' で右軸） */
   function line(container, opt) {
     var labels = opt.labels || [], series = opt.series || [];
     if (!labels.length) return empty(container);
     var w = opt.width || 780, h = opt.height || 250;
-    var pad = { l: 48, r: 14, t: 16, b: 46 };
+    var isRight = function (s) { return s.axis === 'right'; };
+    var lefts = series.filter(function (s) { return !isRight(s); });
+    var rights = series.filter(isRight);
+    var dual = rights.length > 0;
+    var pad = { l: 48, r: dual ? 48 : 14, t: 16, b: 46 };
     var iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
-    var all = [];
-    series.forEach(function (s) { s.values.forEach(function (v) { if (v !== null && v !== undefined) all.push(v); }); });
-    var max = niceMax(Math.max.apply(null, all.concat([0])));
+    var axisMax = function (list) {
+      var vals = [];
+      list.forEach(function (s) { s.values.forEach(function (v) { if (v !== null && v !== undefined) vals.push(v); }); });
+      return niceAxisMax(Math.max.apply(null, vals.concat([0])));
+    };
+    var leftMax = axisMax(lefts), rightMax = dual ? axisMax(rights) : leftMax;
+    var maxOf = function (s) { return isRight(s) ? rightMax : leftMax; };
+    // 2軸のときは目盛りの色で対応する系列が分かるようにする
+    var axisColor = function (list) { return dual && list.length === 1 ? (list[0].color || '#94a3b8') : '#94a3b8'; };
     var svg = root(w, h);
     for (var g = 0; g <= 4; g++) {
       var y = pad.t + ih - (ih * g / 4);
       svg.appendChild(n('line', { x1: pad.l, y1: y, x2: w - pad.r, y2: y, stroke: '#e2e8f0' }));
-      svg.appendChild(text(pad.l - 6, y + 4, fmt(max * g / 4), { 'text-anchor': 'end', 'font-size': 10, fill: '#94a3b8' }));
+      svg.appendChild(text(pad.l - 6, y + 4, fmt(leftMax * g / 4), { 'text-anchor': 'end', 'font-size': 10, fill: axisColor(lefts) }));
+      if (dual) {
+        svg.appendChild(text(w - pad.r + 6, y + 4, fmt(rightMax * g / 4), { 'text-anchor': 'start', 'font-size': 10, fill: axisColor(rights) }));
+      }
     }
     var step = labels.length > 1 ? iw / (labels.length - 1) : 0;
     labels.forEach(function (lab, i) {
@@ -206,6 +233,7 @@
     });
     series.forEach(function (s, si) {
       var color = s.color || U.PALETTE[si % U.PALETTE.length];
+      var max = maxOf(s);
       var pts = [];
       s.values.forEach(function (v, i) {
         if (v === null || v === undefined) return;
@@ -235,9 +263,10 @@
     var lx = pad.l;
     series.forEach(function (s, si) {
       var color = s.color || U.PALETTE[si % U.PALETTE.length];
+      var name = s.name + (dual ? (isRight(s) ? '（右軸）' : '（左軸）') : '');
       svg.appendChild(n('rect', { x: lx, y: h - 13, width: 9, height: 9, rx: 2, fill: color }));
-      svg.appendChild(text(lx + 13, h - 5, s.name, { 'font-size': 10 }));
-      lx += 22 + s.name.length * 6.4;
+      svg.appendChild(text(lx + 13, h - 5, name, { 'font-size': 10 }));
+      lx += 26 + textWidth(name);
     });
     return mount(container, svg);
   }

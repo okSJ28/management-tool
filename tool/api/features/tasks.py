@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.storage import STORE
+from core.storage import STORE, ConflictError
 
 from ..http import Request, Response, error, json_response
 from ..router import Router
@@ -37,7 +37,12 @@ def bulk(req: Request) -> Response:
 
 @router.put("/api/tasks/{task_id}")
 def update_task(req: Request) -> Response:
-    task = STORE.update_task(req.params["task_id"], req.json())
+    patch = req.json()
+    base = patch.pop("_baseUpdatedAt", None)
+    try:
+        task = STORE.update_task(req.params["task_id"], patch, base)
+    except ConflictError:
+        return error("conflict", 409)
     return json_response({"task": task}) if task else error("not-found", 404)
 
 

@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS saved_views (
     seq   INTEGER PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    seq        INTEGER NOT NULL,
+    name       TEXT,
+    member     TEXT,
+    role       TEXT NOT NULL,
+    password   TEXT NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
 """
 
 _TASK_COLUMNS = ("id", "seq", "type", "program_id", "project", "assignee1",
@@ -74,6 +84,8 @@ _TASK_COLUMNS = ("id", "seq", "type", "program_id", "project", "assignee1",
                  "updated_at", "payload")
 _PLAN_COLUMNS = ("id", "seq", "kind", "member", "project", "date", "end_date",
                  "created_at", "updated_at", "payload")
+_USER_COLUMNS = ("id", "seq", "name", "member", "role", "password",
+                 "created_at", "updated_at")
 
 # Columns added after the first release: (table, column, type).
 _ADDED_COLUMNS = (("plans", "kind", "TEXT"),)
@@ -243,6 +255,49 @@ class Database:
             conn.executemany(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", meta_rows)
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    # ------------------------------------------------------------ users
+    # Login accounts are kept apart from the store payload so they never end
+    # up in JSON exports / backups and are not wiped by a full import.
+    def read_users(self) -> list[dict[str, Any]]:
+        self.initialize()
+        rows = self.conn.execute(
+            f"SELECT {', '.join(_USER_COLUMNS)} FROM users ORDER BY seq")
+        return [dict(zip(_USER_COLUMNS, row)) for row in rows]
+
+    def read_user(self, user_id: str) -> dict[str, Any] | None:
+        self.initialize()
+        row = self.conn.execute(
+            f"SELECT {', '.join(_USER_COLUMNS)} FROM users WHERE id = ?",
+            (user_id,)).fetchone()
+        return dict(zip(_USER_COLUMNS, row)) if row else None
+
+    def save_user(self, user: dict[str, Any]) -> None:
+        self.initialize()
+        with self._lock, self.conn as conn:
+            row = conn.execute("SELECT seq FROM users WHERE id = ?", (user["id"],)).fetchone()
+            if row is None:
+                row = conn.execute("SELECT COALESCE(MAX(seq), -1) + 1 FROM users").fetchone()
+            values = {**user, "seq": row[0]}
+            conn.execute(
+                f"INSERT OR REPLACE INTO users ({', '.join(_USER_COLUMNS)}) "
+                f"VALUES ({', '.join('?' * len(_USER_COLUMNS))})",
+                [values.get(c) for c in _USER_COLUMNS])
+
+    def delete_user(self, user_id: str) -> None:
+        self.initialize()
+        with self._lock, self.conn as conn:
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    def get_meta(self, key: str) -> str | None:
+        self.initialize()
+        row = self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.initialize()
+        with self._lock, self.conn as conn:
+            conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
 
     @staticmethod
     def _delete_ids(conn: sqlite3.Connection, table: str, ids) -> None:

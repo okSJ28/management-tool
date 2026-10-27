@@ -90,12 +90,12 @@
       var wrap = U.el('div', { class: 'table-wrap', style: { maxHeight: 'calc(100vh - 300px)' } });
       var tbl = U.el('table', { class: 'grid-table' });
       var hr = U.el('tr');
-      hr.appendChild(U.el('th', { class: 'col-pin', style: { minWidth: '120px' }, text: '担当者' }));
+      hr.appendChild(U.el('th', { class: 'col-pin', style: { minWidth: '120px', width: '120px' }, text: '担当者' }));
       days.forEach(function (d) {
         var iso = U.iso(d);
         hr.appendChild(U.el('th', {
           class: 'center', style: {
-            minWidth: '120px',
+            minWidth: '120px', width: '120px',
             background: iso === todayIso ? 'var(--primary-soft)' : (U.isWeekend(d) ? '#fef2f2' : null)
           },
           text: (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')'
@@ -164,11 +164,11 @@
               onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
             }, [
               U.el('div', { class: 'strong', style: { color: color }, text: (result ? '🌙 ' : '☀ ') + (p.category || '—') }),
-              p.title ? U.el('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis' }, text: p.title }) : null,
+              p.title ? U.el('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', overflowWrap: 'anywhere' }, text: p.title }) : null,
               U.el('div', { class: 'muted mono' }, [
                 document.createTextNode(result
-                  ? (p.actualHours ? U.fmtNum(p.actualHours, 1) + 'h' : '')
-                  : (p.hours ? U.fmtNum(p.hours, 1) + 'h' : '')),
+                  ? (p.actualHours ? U.fmtH(p.actualHours) + 'h' : '')
+                  : (p.hours ? U.fmtH(p.hours) + 'h' : '')),
                 result && p.progress !== null && p.progress !== undefined
                   ? U.el('span', { class: 'strong', style: { marginLeft: '4px', color: color }, text: p.progress + '%' }) : null
               ])
@@ -246,8 +246,8 @@
         Views._helpers.kpi('記録件数', String(plans.length), '件',
           '☀ 予定 ' + planRows.length + ' / 🌙 実績 ' + resultRows.length + ' / 📌 取組み ' + assigns.length
           + '（担当 ' + U.uniq(plans.map(function (p) { return p.member; })).length + '名）', 'blue'),
-        Views._helpers.kpi('予定工数', U.fmtNum(planned, 1), 'h', '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
-        Views._helpers.kpi('実績工数', U.fmtNum(actual, 1), 'h', planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
+        Views._helpers.kpi('予定工数', U.fmtH(planned), 'h', '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
+        Views._helpers.kpi('実績工数', U.fmtH(actual), 'h', planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
         Views._helpers.kpi('平均進捗率', resultRows.length ? U.fmtNum(avgProgress, 0) : '—', '%',
           '完了 ' + resultRows.filter(function (p) { return p.status === '完了'; }).length + '件', 'amber')
       ]));
@@ -256,8 +256,8 @@
       var items = Array.from(g.entries()).map(function (e) {
         return {
           label: e[0], count: e[1].length,
-          planned: Math.round(U.sum(e[1].filter(isPlan), function (p) { return p.hours; }) * 10) / 10,
-          actual: Math.round(U.sum(e[1].filter(isResult), function (p) { return p.actualHours; }) * 10) / 10
+          planned: Math.round(U.sum(e[1].filter(isPlan), function (p) { return p.hours; }) * 100) / 100,
+          actual: Math.round(U.sum(e[1].filter(isResult), function (p) { return p.actualHours; }) * 100) / 100
         };
       }).sort(function (a, b) { return b.planned - a.planned; });
 
@@ -298,8 +298,8 @@
             U.el('span', { class: 'chip dot', style: { background: (R.dim === 'category' ? State.planColor(i.label) : U.colorOf(i.label)) + '1f', color: R.dim === 'category' ? State.planColor(i.label) : U.colorOf(i.label) }, text: i.label })
           ]),
           U.el('td', { class: 'num', text: String(i.count) }),
-          U.el('td', { class: 'num', text: U.fmtNum(i.planned, 1) }),
-          U.el('td', { class: 'num', text: U.fmtNum(i.actual, 1) }),
+          U.el('td', { class: 'num', text: U.fmtH(i.planned) }),
+          U.el('td', { class: 'num', text: U.fmtH(i.actual) }),
           U.el('td', { class: 'num', text: i.planned ? U.fmtNum(i.actual / i.planned * 100, 0) + '%' : '' }),
           U.el('td', {}, [U.el('div', { class: 'progress' }, [U.el('span', { style: { width: (planned ? i.planned / planned * 100 : 0) + '%' } })])])
         ]));
@@ -307,8 +307,8 @@
       tb.appendChild(U.el('tr', { style: { background: 'var(--surface-2)' } }, [
         U.el('td', { class: 'strong', text: '合計' }),
         U.el('td', { class: 'num strong', text: String(plans.length) }),
-        U.el('td', { class: 'num strong', text: U.fmtNum(planned, 1) }),
-        U.el('td', { class: 'num strong', text: U.fmtNum(actual, 1) }),
+        U.el('td', { class: 'num strong', text: U.fmtH(planned) }),
+        U.el('td', { class: 'num strong', text: U.fmtH(actual) }),
         U.el('td', { class: 'num strong', text: planned ? U.fmtNum(actual / planned * 100, 0) + '%' : '' }),
         U.el('td', {})
       ]));

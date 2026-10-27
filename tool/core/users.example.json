@@ -1,0 +1,6 @@
+{
+  "_comment": "初回起動時に登録するログインユーザーのサンプル。実際の運用では同じ形式で users.json を作成する（users.json は Git 管理外）。初期パスワードは ID と同じ。member は担当者マスタ上の名前。role: owner=特権管理者（担当者に含めない） / admin=管理者 / user=一般。",
+  "users": [
+    { "id": "admin", "name": "管理者", "member": "", "role": "owner" }
+  ]
+}

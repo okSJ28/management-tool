@@ -50,6 +50,8 @@ class Config:
         self.gzip_min = _int("DPM_GZIP_MIN", 4096)
         self.port_scan = _int("DPM_PORT_SCAN", 20)
         self.allowed_hosts_raw = _env("DPM_ALLOWED_HOSTS")
+        # ログインの有効時間（時間）
+        self.session_hours = _int("DPM_SESSION_HOURS", 12)
 
     # ------------------------------------------------------------ paths
     @property

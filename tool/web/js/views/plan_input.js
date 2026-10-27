@@ -1,31 +1,34 @@
 /* ============================================================
-   views/plan_input.js - 日次入力（始業前=予定 / 終業前=実績）
+   views/plan_input.js - 日次入力（予実一体シート）
+   1 作業 = 1 行。左が始業前の予定、右が終業前の実績。
+   予定(kind=plan) と実績(kind=result) は別レコードのまま、
+   実績の sourceId で予定と対応づけて 1 行に組み立てる。
    ============================================================ */
 (function (global) {
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var P = { date: null, member: null, rows: null, removed: null, key: null };
+  var P = { date: null, member: null, rows: null, removed: null, key: null, dirty: false, teamOpen: false };
 
   var PHASE = {
     plan: {
       kind: 'plan', icon: '☀', label: '始業前入力', short: '始業前',
-      head: '本日やる作業', sub: '始業前に、今日やる作業を登録します',
       accent: '#d97706', soft: '#fffbeb', hourKey: 'hours', hourLabel: '予定(h)'
     },
     result: {
       kind: 'result', icon: '🌙', label: '終業前入力', short: '終業前',
-      head: '本日やったこと', sub: '終業前に、実施した工程と進捗率を登録します',
       accent: '#4f46e5', soft: '#eef2ff', hourKey: 'actualHours', hourLabel: '実績(h)'
     }
   };
 
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
+  var PROGRESS_STEPS = [0, 25, 50, 75, 100];
+  var SHARED = ['category', 'project', 'title', 'assignmentId', 'projectCode', 'workCode', 'programId', 'taskId'];
 
   function kindOf(p) {
     return p && (p.kind === 'result' || p.kind === 'assignment') ? p.kind : 'plan';
   }
-  function me() { return P.member || State.user() || (State.members()[0] || ''); }
+  function me() { return P.member || State.me(); }
   function todayIso() { return U.iso(U.today()); }
   function curDate() { return P.date || todayIso(); }
 
@@ -45,33 +48,81 @@
       + '　' + U.fmtDate(a.date) + '〜' + U.fmtDate(a.endDate || a.date);
   }
 
-  /* ------------------------------------------------ ドラフト管理 */
-  function emptyRow(kind) {
+  function newId() {
+    var a = new Uint8Array(6);
+    (global.crypto || global.msCrypto).getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+
+  /* ------------------------------------------------ 行モデル */
+  function makeRow(plan, result) {
+    var src = result || plan || {};
+    var f = {};
+    SHARED.forEach(function (k) { f[k] = src[k] === undefined ? null : src[k]; });
     return {
-      id: null, kind: kind, member: me(), date: curDate(), endDate: curDate(),
-      category: null, project: null, title: null, programId: null, taskId: null,
-      projectCode: null, workCode: null,
-      hours: null, actualHours: null, progress: null, sourceId: null, note: null,
-      assignmentId: null,
-      status: kind === 'plan' ? '予定' : '実施中'
+      plan: plan, result: result, hasPlan: !!plan || !result, f: f,
+      hours: plan ? plan.hours : null,
+      actualHours: result ? result.actualHours : null,
+      progress: result ? result.progress : null,
+      status: (result && result.status) || '実施中',
+      dirty: false, fieldsEdited: false, codesOpen: false
     };
   }
 
-  function isBlank(row) {
-    return !row.category && !row.title && !row.project && !row.assignmentId &&
-      !row.projectCode && !row.workCode &&
-      row.hours === null && row.actualHours === null && row.progress === null;
+  function newRow(hasPlan, init) {
+    var r = makeRow(null, null);
+    r.hasPlan = hasPlan;
+    Object.keys(init || {}).forEach(function (k) {
+      if (k === 'hours') r.hours = init.hours; else r.f[k] = init[k];
+    });
+    return r;
   }
 
-  function syncDrafts(force) {
+  /* 予定に、その予定を元にした実績（sourceId）を 1 件ずつ対応づける。残りの実績は「予定外」の行になる */
+  function buildRows(date, member) {
+    var results = plansOf(date, member, 'result');
+    var used = {};
+    var rows = plansOf(date, member, 'plan').map(function (p) {
+      var res = null;
+      results.some(function (r) {
+        if (!used[r.id] && r.sourceId && r.sourceId === p.id) { used[r.id] = true; res = r; return true; }
+        return false;
+      });
+      return makeRow(p, res);
+    });
+    results.forEach(function (r) { if (!used[r.id]) rows.push(makeRow(null, r)); });
+    return rows;
+  }
+
+  /* 実績h・進捗率のどちらかが入っていれば実績ありとする（両方消すと実績の取消し） */
+  function hasResult(r) { return r.actualHours !== null || r.progress !== null; }
+  /* 実績h が空なら予定h をそのまま実績とみなす */
+  function effActual(r) { return r.actualHours !== null ? r.actualHours : (r.hasPlan ? r.hours : null); }
+
+  function isBlank(r) {
+    return !r.f.category && !r.f.title && !r.f.project && !r.f.assignmentId &&
+      !r.f.projectCode && !r.f.workCode && r.hours === null && !hasResult(r);
+  }
+
+  function syncDrafts() {
     var key = curDate() + '|' + me();
-    if (!force && P.key === key && P.rows) return;
+    // 未保存の編集が無ければ毎回最新データから組み直す（自動同期の反映）
+    if (P.key === key && P.rows && P.dirty) return;
     P.key = key;
-    P.removed = { plan: [], result: [] };
-    P.rows = {
-      plan: plansOf(curDate(), me(), 'plan').map(function (p) { return Object.assign({}, p); }),
-      result: plansOf(curDate(), me(), 'result').map(function (p) { return Object.assign({}, p); })
-    };
+    P.dirty = false;
+    P.removed = [];
+    P.rows = buildRows(curDate(), me());
+  }
+
+  function touch(r, shared) {
+    r.dirty = true;
+    if (shared) r.fieldsEdited = true;
+    P.dirty = true;
+  }
+
+  /* 未保存のまま担当者・日付を切り替える前の確認 */
+  function leaveOk() {
+    return !P.dirty || global.confirm('保存していない変更があります。破棄して切り替えますか？');
   }
 
   var dlReady = false;
@@ -87,226 +138,337 @@
     return 'dl_plan_project';
   }
 
-  /* ------------------------------------------------ 入力シート */
-  function sheet(conf) {
-    var kind = conf.kind;
-    var card = U.el('div', { class: 'card', style: { display: 'flex', flexDirection: 'column' } });
+  /* ------------------------------------------------ 予実シート */
+  function sheet() {
+    var card = U.el('div', { class: 'card pi-card mt12' });
     var tbody = U.el('tbody');
-    var footNote = U.el('div', { class: 'muted', style: { fontSize: '11px' } });
-
-    function totals() {
-      var rows = P.rows[kind].filter(function (r) { return !isBlank(r); });
-      var h = U.sum(rows, function (r) { return r[conf.hourKey]; });
-      var target = State.settings().workHoursPerDay || 7.5;
-      var text = rows.length + ' 件 / ' + U.fmtNum(h, 1) + 'h（基準 ' + target + 'h）';
-      if (kind === 'result') {
-        var avg = rows.length ? U.sum(rows, function (r) { return r.progress; }) / rows.length : 0;
-        text += ' / 平均進捗 ' + U.fmtNum(avg, 0) + '%';
-      }
-      footNote.textContent = text;
-    }
+    var tfoot = U.el('tfoot');
+    var foot = U.el('div', { class: 'pi-foot' });
+    var hour = new Date().getHours();
+    var evening = curDate() < todayIso() || (curDate() === todayIso() && hour >= 15);
 
     function paint() {
       U.clear(tbody);
-      if (!P.rows[kind].length) P.rows[kind].push(emptyRow(kind));
-      P.rows[kind].forEach(function (row) { tbody.appendChild(rowNode(conf, row, paint, totals)); });
-      totals();
+      if (!P.rows.length) P.rows.push(newRow(true));
+      P.rows.forEach(function (r) { tbody.appendChild(rowNode(r, paint, refresh)); });
+      tbody.appendChild(U.el('tr', { class: 'pi-add' }, [
+        U.el('td', { colspan: '10' }, [
+          U.el('button', {
+            class: 'btn btn-sm pi-ghost', text: '＋ 作業を追加（予定）',
+            onclick: function () { P.rows.push(newRow(true)); P.dirty = true; paint(); focusLast('.pi-cat'); }
+          }),
+          U.el('button', {
+            class: 'btn btn-sm pi-ghost', text: '＋ 予定外の作業を追加（実績のみ）',
+            title: '始業前に予定していなかった作業を実績として追加します',
+            onclick: function () { P.rows.push(newRow(false)); P.dirty = true; paint(); focusLast('.pi-cat'); }
+          })
+        ])
+      ]));
+      refresh();
     }
 
-    var head = U.el('div', {
-      class: 'card-head',
-      style: { background: conf.soft, borderBottom: '2px solid ' + conf.accent }
-    }, [
-      U.el('div', {}, [
-        U.el('h3', { style: { color: conf.accent }, text: conf.icon + ' ' + conf.label + ' — ' + conf.head }),
-        U.el('div', { class: 'muted', style: { fontSize: '11px' }, text: conf.sub })
-      ]),
-      U.el('div', { class: 'tools' }, [
-        kind === 'result' ? U.el('button', {
-          class: 'btn btn-sm', text: '⇩ 予定から取り込む', title: '始業前に入力した予定を実績行にコピーします',
-          onclick: function () { importFromPlan(paint); }
-        }) : null,
-        U.el('button', {
-          class: 'btn btn-sm', text: '＋ 行を追加',
-          onclick: function () { P.rows[kind].push(emptyRow(kind)); paint(); }
-        })
-      ])
+    function focusLast(sel) {
+      var list = tbody.querySelectorAll(sel);
+      if (list.length) list[list.length - 1].focus();
+    }
+
+    function refresh() {
+      var live = P.rows.filter(function (r) { return !isBlank(r); });
+      var planned = U.sum(live.filter(function (r) { return r.hasPlan; }), function (r) { return r.hours; });
+      var done = live.filter(hasResult);
+      var actual = U.sum(done, effActual);
+      var target = State.settings().workHoursPerDay || 7.5;
+      var avg = U.avg(done, function (r) { return r.progress; });
+
+      // 内容のある行で工程が未選択なら赤枠で示す
+      P.rows.forEach(function (r) {
+        if (r.catNode) r.catNode.classList.toggle('pi-need', !r.f.category && !isBlank(r));
+      });
+
+      U.clear(tfoot);
+      tfoot.appendChild(U.el('tr', {}, [
+        U.el('td', { colspan: '4', class: 'right', text: '合計　' + live.length + ' 件' }),
+        U.el('td', { class: 'num pi-am', text: fmtH(planned) + 'h' }),
+        U.el('td', { class: 'num pi-pm', text: done.length ? fmtH(actual) + 'h' : '—' }),
+        diffCell(done.length ? actual : null, planned),
+        U.el('td', { colspan: '3' }, [
+          U.el('div', { class: 'row-flex', style: { gap: '8px' } }, [
+            hoursBar(live, target),
+            U.el('span', { class: 'muted', text: '基準 ' + target + 'h' + (avg === null ? '' : '　平均進捗 ' + U.fmtNum(avg, 0) + '%') })
+          ])
+        ])
+      ]));
+
+      var changed = P.rows.filter(function (r) { return r.dirty && (!isBlank(r) || r.plan || r.result); }).length + P.removed.length;
+      var missing = P.rows.filter(function (r) { return hasResult(r) && r.progress === null; }).length;
+      U.clear(foot);
+      foot.appendChild(U.el('span', {
+        class: 'pi-state' + (changed ? ' warn' : ''),
+        text: changed ? '● 未保存の変更 ' + changed + ' 件' : '✓ 保存済み'
+      }));
+      if (missing) foot.appendChild(U.el('span', { class: 'pi-state err', text: '進捗率が未入力 ' + missing + ' 件' }));
+      foot.appendChild(U.el('div', { class: 'spacer' }));
+      foot.appendChild(U.el('span', { class: 'muted', text: 'Ctrl + S でも保存できます' }));
+      foot.appendChild(U.el('button', { class: 'btn btn-primary', text: '💾 保存', onclick: save }));
+    }
+
+    var table = U.el('table', { class: 'grid-table pi-table' });
+    var g1 = U.el('tr', { class: 'pi-group' }, [
+      U.el('th', { colspan: '4', text: '作業' }),
+      U.el('th', { class: 'pi-am', text: PHASE.plan.icon + ' 予定' }),
+      U.el('th', { colspan: '4', class: 'pi-pm' + (evening ? ' pi-now' : ''), text: PHASE.result.icon + ' 実績（終業前に入力）' }),
+      U.el('th', {})
     ]);
-
-    var cols = kind === 'plan'
-      ? [['取組み予定', 118], ['PJCD', 112], ['作業コード', 112],
-         ['工程（作業区分）', 96], ['案件名', 112], ['作業内容', null],
-         [conf.hourLabel, 64], ['', 38]]
-      : [['取組み予定', 118], ['工程（作業区分）', 96], ['案件名', 112], ['作業内容', null],
-         [conf.hourLabel, 64], ['進捗率', 84], ['状況', 80], ['', 38]];
-
-    // 幅指定のない「作業内容」が潰れないよう、最小幅を確保して足りなければ横スクロールさせる
-    var TITLE_MIN = 220;
-    var fixedTotal = cols.reduce(function (a, c) { return a + (c[1] || 0); }, 0);
-    var table = U.el('table', {
-      class: 'grid-table',
-      style: { tableLayout: 'fixed', width: '100%', minWidth: (fixedTotal + TITLE_MIN) + 'px' }
-    });
-    var hr = U.el('tr');
-    cols.forEach(function (c) {
-      // 幅を指定しない列（作業内容）が残り幅をすべて受け取る
-      hr.appendChild(U.el('th', { style: c[1] ? { width: c[1] + 'px' } : null, text: c[0] }));
-    });
-    table.appendChild(U.el('thead', {}, [hr]));
+    var g2 = U.el('tr', {}, [
+      ['工程（作業区分）', 104], ['案件名', 110], ['作業内容', null], ['取組み予定', 120],
+      ['予定(h)', 80, 'pi-am'], ['実績(h)', 80, 'pi-pm'], ['差', 50], ['進捗率', 192], ['状況', 92], ['', 34]
+    ].map(function (c) {
+      return U.el('th', { class: c[2] || null, style: c[1] ? { width: c[1] + 'px' } : null, text: c[0] });
+    }));
+    table.appendChild(U.el('thead', {}, [g1, g2]));
     table.appendChild(tbody);
+    table.appendChild(tfoot);
 
-    card.appendChild(head);
-    card.appendChild(U.el('div', { class: 'table-wrap', style: { flex: 1 } }, [table]));
-    card.appendChild(U.el('div', {
-      class: 'card-body tight', style: { display: 'flex', alignItems: 'center', gap: '10px' }
-    }, [
-      footNote,
-      U.el('div', { class: 'spacer' }),
-      U.el('button', {
-        class: 'btn btn-primary btn-sm', text: '💾 ' + conf.label + 'を保存',
-        onclick: function () { save(conf); }
-      })
-    ]));
-
+    card.appendChild(U.el('div', { class: 'pi-wrap' }, [table]));
+    card.appendChild(foot);
     paint();
     return card;
   }
 
-  function codeSelect(masterKey, row, field) {
-    var sel = U.el('select', { style: { width: '100%' }, title: State.codeLabel(masterKey, row[field]) });
-    sel.appendChild(U.el('option', { value: '', text: '— 選択 —' }));
+  /* 工数表示（0.25h 刻みも丸めずに出す） */
+  var fmtH = U.fmtH;
+
+  function diffCell(actual, planned) {
+    if (actual === null || actual === undefined || planned === null || planned === undefined) {
+      return U.el('td', { class: 'num' });
+    }
+    var d = Math.round((actual - planned) * 100) / 100;
+    return U.el('td', {
+      class: 'num pi-diff' + (d > 0 ? ' over' : d < 0 ? ' under' : ''),
+      text: d === 0 ? '±0' : (d > 0 ? '+' : '−') + fmtH(Math.abs(d))
+    });
+  }
+
+  /* 工程の色で塗り分けた時間配分バー（実績があれば実績、なければ予定） */
+  function hoursBar(rows, target) {
+    var parts = rows.map(function (r) {
+      return { c: r.f.category, h: hasResult(r) ? effActual(r) : (r.hasPlan ? r.hours : 0) };
+    }).filter(function (x) { return x.h > 0; });
+    var total = U.sum(parts, function (x) { return x.h; });
+    var scale = Math.max(total, target) || 1;
+    var bar = U.el('div', { class: 'pi-hbar', title: fmtH(total) + 'h / 基準 ' + target + 'h' });
+    parts.forEach(function (x) {
+      bar.appendChild(U.el('span', {
+        title: (x.c || '工程未選択') + ' ' + fmtH(x.h) + 'h',
+        style: { width: (x.h / scale * 100) + '%', background: x.c ? State.planColor(x.c) : 'var(--text-3)' }
+      }));
+    });
+    bar.appendChild(U.el('i', { style: { left: (target / scale * 100) + '%' } }));
+    return bar;
+  }
+
+  function codeSelect(masterKey, r, field) {
+    var sel = U.el('select', { title: State.codeLabel(masterKey, r.f[field]) });
+    sel.appendChild(U.el('option', { value: '', text: masterKey === 'projectCodes' ? '— PJCD —' : '— 作業コード —' }));
     State.codeList(masterKey).forEach(function (c) {
       sel.appendChild(U.el('option', {
-        value: c.code, selected: row[field] === c.code,
+        value: c.code, selected: r.f[field] === c.code,
         text: c.code + (c.name ? '　' + c.name : '')
       }));
     });
     // マスタから削除されたコードが残っている場合も選択肢に保持する
-    if (row[field] && !State.codeList(masterKey).some(function (c) { return c.code === row[field]; })) {
-      sel.appendChild(U.el('option', { value: row[field], text: row[field] + '（マスタ未登録）', selected: true }));
+    if (r.f[field] && !State.codeList(masterKey).some(function (c) { return c.code === r.f[field]; })) {
+      sel.appendChild(U.el('option', { value: r.f[field], text: r.f[field] + '（マスタ未登録）', selected: true }));
     }
-    sel.value = row[field] || '';
+    sel.value = r.f[field] || '';
     sel.addEventListener('change', function () {
-      row[field] = this.value || null;
-      this.title = State.codeLabel(masterKey, row[field]);
+      r.f[field] = this.value || null;
+      this.title = State.codeLabel(masterKey, r.f[field]);
+      touch(r, true);
     });
     return sel;
   }
 
-  function rowNode(conf, row, paint, totals) {
-    var kind = conf.kind;
-    var tr = U.el('tr');
-    function accent() { return State.planColor(row.category); }
-    tr.style.borderLeft = '3px solid ' + (row.category ? accent() : 'transparent');
+  function numInput(value, attrs) {
+    return U.el('input', Object.assign({
+      type: 'number', min: '0', class: 'num',
+      value: value === null || value === undefined ? '' : value
+    }, attrs));
+  }
+
+  function rowNode(r, paint, refresh) {
+    var tr = U.el('tr', { class: r.hasPlan ? null : 'pi-extra' });
+    var first = U.el('td', { class: 'pi-first' });
+    function accent() {
+      first.style.boxShadow = 'inset 3px 0 0 ' + (r.f.category ? State.planColor(r.f.category) : 'transparent');
+    }
+    accent();
+
+    /* 工程（作業区分） */
+    var cat = U.el('select', {
+      class: 'pi-cat',
+      onchange: function () {
+        r.f.category = this.value || null;
+        this.style.color = r.f.category ? State.planColor(r.f.category) : '';
+        accent(); touch(r, true); refresh();
+      }
+    });
+    r.catNode = cat;
+    cat.appendChild(U.el('option', { value: '', text: '— 選択 —' }));
+    (State.masters.planCategories || []).forEach(function (c) {
+      cat.appendChild(U.el('option', { value: c.value, text: c.value, selected: r.f.category === c.value }));
+    });
+    if (r.f.category && !(State.masters.planCategories || []).some(function (c) { return c.value === r.f.category; })) {
+      cat.appendChild(U.el('option', { value: r.f.category, text: r.f.category, selected: true }));
+    }
+    cat.value = r.f.category || '';
+    cat.style.color = r.f.category ? State.planColor(r.f.category) : '';
+    first.appendChild(cat);
+    tr.appendChild(first);
+
+    /* 案件名 */
+    var proj = U.el('input', { type: 'text', value: r.f.project || '', list: projectDatalist() });
+    proj.addEventListener('input', function () { r.f.project = this.value || null; touch(r, true); refresh(); });
+    tr.appendChild(U.el('td', {}, [proj]));
+
+    /* 作業内容 ＋ PJCD / 作業コード */
+    var title = U.el('input', {
+      type: 'text', value: r.f.title || '',
+      placeholder: r.hasPlan ? '例）SDLP341 修正・単体テスト' : '例）本番障害の問合せ対応'
+    });
+    title.addEventListener('input', function () { r.f.title = this.value || null; touch(r, true); refresh(); });
+    var codes = r.f.projectCode || r.f.workCode
+      ? 'PJCD ' + (r.f.projectCode || '—') + ' ／ 作業 ' + (r.f.workCode || '—')
+      : '＋ PJCD・作業コード';
+    var codeBox = r.codesOpen
+      ? U.el('div', { class: 'pi-codes' }, [codeSelect('projectCodes', r, 'projectCode'), codeSelect('workCodes', r, 'workCode')])
+      : null;
+    tr.appendChild(U.el('td', {}, [
+      title,
+      U.el('button', {
+        type: 'button', class: 'pi-link', text: r.codesOpen ? '▴ 閉じる' : codes,
+        title: State.codeLabel('projectCodes', r.f.projectCode) || 'PJCD・作業コードを選択',
+        onclick: function () { r.codesOpen = !r.codesOpen; paint(); }
+      }),
+      codeBox
+    ]));
 
     /* 取組み予定（期間）との紐づけ */
     var assigns = assignmentsForDay();
-    var asg = U.el('select', { style: { width: '100%' } });
+    var asg = U.el('select', {});
     asg.appendChild(U.el('option', { value: '', text: '（紐づけなし）' }));
     assigns.forEach(function (a) {
-      asg.appendChild(U.el('option', { value: a.id, text: assignmentLabel(a), selected: row.assignmentId === a.id }));
+      asg.appendChild(U.el('option', { value: a.id, text: assignmentLabel(a), selected: r.f.assignmentId === a.id }));
     });
     // 期間外の取組み予定に既に紐づいている場合も選択肢を残す
-    if (row.assignmentId && !assigns.some(function (a) { return a.id === row.assignmentId; })) {
-      var old = State.assignmentById(row.assignmentId);
+    if (r.f.assignmentId && !assigns.some(function (a) { return a.id === r.f.assignmentId; })) {
+      var old = State.assignmentById(r.f.assignmentId);
       if (old) asg.appendChild(U.el('option', { value: old.id, text: assignmentLabel(old), selected: true }));
     }
-    asg.value = row.assignmentId || '';
+    asg.value = r.f.assignmentId || '';
+    asg.title = asg.selectedIndex > 0 ? asg.options[asg.selectedIndex].text : '';
     asg.addEventListener('change', function () {
-      row.assignmentId = this.value || null;
-      var a = State.assignmentById(row.assignmentId);
+      r.f.assignmentId = this.value || null;
+      var a = State.assignmentById(r.f.assignmentId);
       if (a) {
-        row.category = a.category;
-        row.project = a.project;
-        row.programId = a.programId;
-        row.taskId = a.taskId;
-        if (!row.title) row.title = a.title;
+        r.f.category = a.category;
+        r.f.project = a.project;
+        r.f.programId = a.programId;
+        r.f.taskId = a.taskId;
+        if (!r.f.title) r.f.title = a.title;
       }
+      touch(r, true);
       paint();
     });
     tr.appendChild(U.el('td', {}, [asg]));
 
-    /* PJCD / 作業コード（始業前のみ列表示。実績には取り込み時に引き継がれる） */
-    if (kind === 'plan') {
-      tr.appendChild(U.el('td', {}, [codeSelect('projectCodes', row, 'projectCode')]));
-      tr.appendChild(U.el('td', {}, [codeSelect('workCodes', row, 'workCode')]));
+    /* ☀ 予定(h) */
+    var diffTd = U.el('td', { class: 'num' });
+    function paintDiff() {
+      var d = diffCell(hasResult(r) && r.hasPlan ? effActual(r) : null, r.hours);
+      diffTd.className = d.className;
+      diffTd.textContent = d.textContent;
+    }
+    var actual;
+    if (r.hasPlan) {
+      var planH = numInput(r.hours, { step: '0.5' });
+      planH.addEventListener('input', function () {
+        r.hours = U.num(this.value);
+        if (actual) actual.placeholder = r.hours === null ? '' : String(r.hours);
+        touch(r); paintDiff(); refresh();
+      });
+      tr.appendChild(U.el('td', { class: 'pi-am' }, [planH]));
+    } else {
+      tr.appendChild(U.el('td', { class: 'pi-am center' }, [U.el('span', { class: 'chip', text: '予定外' })]));
     }
 
-    /* 工程（作業区分） */
-    var cat = U.el('select', {
-      style: { width: '100%' },
+    /* 🌙 実績(h)：空欄なら予定h を薄字で表示し、保存時はその値を採用する */
+    actual = numInput(r.actualHours, {
+      step: '0.5', class: 'num pi-actual',
+      placeholder: r.hasPlan && r.hours !== null ? String(r.hours) : '',
+      title: '空欄のまま進捗率を入れると、予定(h) と同じ時間で登録します'
+    });
+    actual.addEventListener('input', function () { r.actualHours = U.num(this.value); touch(r); paintDiff(); paintProgress(); refresh(); dim(); });
+    tr.appendChild(U.el('td', { class: 'pi-pm' }, [actual]));
+    tr.appendChild(diffTd);
+    paintDiff();
+
+    /* 進捗率：ワンクリックのボタン＋細かい値の数値入力 */
+    var seg = U.el('div', { class: 'pi-seg' });
+    var prog = numInput(r.progress, { step: '5', max: '100', class: 'num pi-prog', title: '進捗率(%)' });
+    function paintProgress() {
+      Array.prototype.forEach.call(seg.children, function (b) {
+        b.classList.toggle('on', r.progress !== null && Number(b.dataset.v) === r.progress);
+      });
+      seg.classList.toggle('pi-need', hasResult(r) && r.progress === null);
+    }
+    function setProgress(v, fromInput) {
+      r.progress = v === null ? null : Math.max(0, Math.min(100, v));
+      if (!fromInput) prog.value = r.progress === null ? '' : r.progress;
+      // 100% にしたら完了、完了から戻したら実施中
+      if (r.progress === 100 && r.status === '実施中') { r.status = '完了'; st.value = '完了'; }
+      else if (r.progress !== null && r.progress < 100 && r.status === '完了') { r.status = '実施中'; st.value = '実施中'; }
+      touch(r); paintProgress(); paintDiff(); refresh(); dim();
+    }
+    PROGRESS_STEPS.forEach(function (v) {
+      seg.appendChild(U.el('button', {
+        type: 'button', text: String(v), dataset: { v: String(v) },
+        onclick: function () { setProgress(r.progress === v ? null : v); }
+      }));
+    });
+    prog.addEventListener('input', function () { setProgress(U.num(this.value), true); });
+    tr.appendChild(U.el('td', {}, [U.el('div', { class: 'pi-progress' }, [seg, prog, U.el('span', { class: 'muted', text: '%' })])]));
+
+    /* 状況 */
+    var st = U.el('select', {
       onchange: function () {
-        row.category = this.value || null;
-        tr.style.borderLeft = '3px solid ' + (row.category ? accent() : 'transparent');
-        this.style.color = row.category ? accent() : '';
+        r.status = this.value || null;
+        if (r.status === '完了' && r.progress === null) { setProgress(100); return; }
+        touch(r); refresh();
       }
     });
-    cat.appendChild(U.el('option', { value: '', text: '— 選択 —' }));
-    (State.masters.planCategories || []).forEach(function (c) {
-      cat.appendChild(U.el('option', { value: c.value, text: c.value, selected: row.category === c.value }));
+    (State.masters.planStatuses || []).forEach(function (s) {
+      st.appendChild(U.el('option', { value: s.value, text: s.value, selected: r.status === s.value }));
     });
-    cat.value = row.category || '';
-    cat.style.color = row.category ? accent() : '';
-    tr.appendChild(U.el('td', {}, [cat]));
+    st.value = r.status || '実施中';
+    var stTd = U.el('td', {}, [st]);
+    tr.appendChild(stTd);
+    // 実績が未入力の行は状況を薄く表示する
+    function dim() { stTd.classList.toggle('pi-dim', !hasResult(r)); }
+    dim();
+    paintProgress();
 
-    /* 案件名 */
-    var proj = U.el('input', { type: 'text', value: row.project || '', list: projectDatalist(), style: { width: '100%' } });
-    proj.addEventListener('input', function () { row.project = this.value || null; });
-    tr.appendChild(U.el('td', {}, [proj]));
-
-    /* 作業内容 */
-    var title = U.el('input', {
-      type: 'text', value: row.title || '', style: { width: '100%' },
-      placeholder: kind === 'plan' ? '例）SDLP341 修正・単体テスト' : '例）SDLP341 単体テスト消化（20/30件）'
-    });
-    title.addEventListener('input', function () { row.title = this.value || null; });
-    tr.appendChild(U.el('td', {}, [title]));
-
-    /* 工数 */
-    var hour = U.el('input', {
-      type: 'number', step: '0.5', min: '0', class: 'num', style: { width: '100%' },
-      value: row[conf.hourKey] === null || row[conf.hourKey] === undefined ? '' : row[conf.hourKey]
-    });
-    hour.addEventListener('input', function () { row[conf.hourKey] = U.num(this.value); totals(); });
-    tr.appendChild(U.el('td', {}, [hour]));
-
-    /* 進捗率（実績のみ） */
-    if (kind === 'result') {
-      var bar = U.el('div', { class: 'progress', style: { marginTop: '4px' } }, [
-        U.el('span', { style: { width: (row.progress || 0) + '%' } })
-      ]);
-      var prog = U.el('input', {
-        type: 'number', step: '10', min: '0', max: '100', class: 'num', style: { width: '100%' },
-        value: row.progress === null || row.progress === undefined ? '' : row.progress
-      });
-      prog.addEventListener('input', function () {
-        var v = U.num(this.value);
-        row.progress = v === null ? null : Math.max(0, Math.min(100, v));
-        bar.firstChild.style.width = (row.progress || 0) + '%';
-        totals();
-      });
-      tr.appendChild(U.el('td', {}, [prog, bar]));
-
-      var st = U.el('select', {
-        style: { width: '100%' },
-        onchange: function () { row.status = this.value || null; }
-      });
-      (State.masters.planStatuses || []).forEach(function (s) {
-        st.appendChild(U.el('option', { value: s.value, text: s.value, selected: row.status === s.value }));
-      });
-      st.value = row.status || '実施中';
-      tr.appendChild(U.el('td', {}, [st]));
-    }
-
-    /* 削除 */
+    /* 削除（予定・実績とも） */
     tr.appendChild(U.el('td', {}, [
       U.el('button', {
-        class: 'icon-btn', text: '✕', title: 'この行を削除',
+        class: 'icon-btn', text: '✕', title: 'この作業を削除（予定・実績とも）',
         onclick: function () {
-          var i = P.rows[kind].indexOf(row);
+          var i = P.rows.indexOf(r);
           if (i < 0) return;
-          if (row.id) P.removed[kind].push(row.id);
-          P.rows[kind].splice(i, 1);
+          if (r.plan && r.plan.id) P.removed.push(r.plan.id);
+          if (r.result && r.result.id) P.removed.push(r.result.id);
+          P.rows.splice(i, 1);
+          P.dirty = true;
           paint();
         }
       })
@@ -314,100 +476,109 @@
     return tr;
   }
 
-  /* ------------------------------------------------ 保存 / 取り込み */
-  function save(conf) {
-    var kind = conf.kind;
-    var rows = P.rows[kind].filter(function (r) { return !isBlank(r); });
-    if (rows.some(function (r) { return !r.category; })) {
+  /* ------------------------------------------------ 保存 */
+  function save() {
+    var rows = P.rows.filter(function (r) { return r.dirty && !isBlank(r); });
+    if (rows.some(function (r) { return !r.f.category; })) {
       U.toast('工程（作業区分）を選択してください', 'warn'); return;
     }
-    if (kind === 'result' && rows.some(function (r) { return r.progress === null; })) {
-      U.toast('実績には進捗率(%)を入力してください', 'warn'); return;
+    if (rows.some(function (r) { return !r.hasPlan && !hasResult(r); })) {
+      U.toast('予定外の作業には実績(h)と進捗率(%)を入力してください', 'warn'); return;
+    }
+    if (rows.some(function (r) { return hasResult(r) && r.progress === null; })) {
+      U.toast('実績を入力した作業には進捗率(%)を入力してください', 'warn'); return;
     }
 
-    var toDelete = P.removed[kind].slice();
-    P.rows[kind].forEach(function (r) { if (r.id && isBlank(r)) toDelete.push(r.id); });
-
-    var payload = rows.map(function (r) {
-      return Object.assign({}, r, { kind: kind, member: me(), date: curDate(), endDate: curDate() });
+    var toDelete = P.removed.slice();
+    var payload = [];
+    var date = curDate(), member = me();
+    P.rows.forEach(function (r) {
+      if (!r.dirty) return;
+      if (isBlank(r)) {
+        if (r.plan) toDelete.push(r.plan.id);
+        if (r.result) toDelete.push(r.result.id);
+        return;
+      }
+      // 既存レコードは、作業の項目を編集した場合のみ共通項目を上書きする
+      function shared(rec) {
+        var out = { member: member, date: date, endDate: date };
+        if (!rec || r.fieldsEdited) SHARED.forEach(function (k) { out[k] = r.f[k]; });
+        return out;
+      }
+      var planId = null;
+      if (r.hasPlan) {
+        planId = (r.plan && r.plan.id) || newId();
+        payload.push(Object.assign({ status: '予定' }, r.plan || {}, shared(r.plan), {
+          id: planId, kind: 'plan', hours: r.hours
+        }));
+      }
+      if (hasResult(r)) {
+        payload.push(Object.assign({}, r.result || {}, shared(r.result), {
+          id: (r.result && r.result.id) || newId(), kind: 'result',
+          actualHours: effActual(r), progress: r.progress, status: r.status || '実施中',
+          sourceId: planId || (r.result && r.result.sourceId) || null
+        }));
+      } else if (r.result) {
+        // 実績h・進捗率を消した場合は実績レコードを削除する
+        toDelete.push(r.result.id);
+      }
     });
+    if (!payload.length && !toDelete.length) { U.toast('変更はありません', 'info'); return; }
 
     U.loading(true);
     API.savePlans(payload, toDelete)
       .then(function () { return State.reloadPlans(); })
       .then(function () {
         P.key = null;
-        U.toast(conf.label + 'を保存しました（' + rows.length + '件）', 'ok');
+        P.dirty = false;
+        var parts = [];
+        if (rows.length) parts.push(rows.length + ' 件');
+        if (toDelete.length) parts.push('削除 ' + toDelete.length + ' 件');
+        U.toast('保存しました（' + parts.join('・') + '）', 'ok');
         App.render();
       })
       .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
       .finally(function () { U.loading(false); });
   }
 
-  function importFromPlan(paint) {
-    var src = P.rows.plan.filter(function (r) { return !isBlank(r); });
-    if (!src.length) { U.toast('始業前の予定が入力されていません', 'warn'); return; }
-    var seen = {};
-    P.rows.result.forEach(function (r) { if (r.sourceId) seen[r.sourceId] = true; });
-    var added = 0;
-    src.forEach(function (r) {
-      if (r.id && seen[r.id]) return;
-      P.rows.result.push(Object.assign(emptyRow('result'), {
-        category: r.category, project: r.project, title: r.title,
-        programId: r.programId, taskId: r.taskId, assignmentId: r.assignmentId,
-        projectCode: r.projectCode, workCode: r.workCode,
-        actualHours: r.hours, sourceId: r.id || null
-      }));
-      added++;
-    });
-    P.rows.result = P.rows.result.filter(function (r) { return !isBlank(r); });
-    paint();
-    U.toast(added ? added + ' 件を取り込みました。進捗率を入力してください' : '取り込み済みです', added ? 'ok' : 'warn');
-  }
-
   /* ------------------------------------------------ 状況表示 */
-  function statusStrip(date, member) {
+  function summary(date, member) {
     var isToday = date === todayIso();
-    var box = U.el('div', { class: 'row-flex mt12', style: { gap: '10px', flexWrap: 'wrap' } });
+    var box = U.el('div', { class: 'row-flex', style: { gap: '10px', flexWrap: 'wrap' } });
     ['plan', 'result'].forEach(function (kind) {
       var conf = PHASE[kind];
       var list = plansOf(date, member, kind);
       var done = list.length > 0;
-      box.appendChild(U.el('div', {
-        class: 'card', style: {
-          flex: '1 1 260px', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px',
-          borderLeft: '4px solid ' + (done ? 'var(--ok)' : (isToday ? 'var(--danger)' : 'var(--border)')),
-          background: done ? null : (isToday ? '#fef2f2' : null)
-        }
-      }, [
-        U.el('span', { style: { fontSize: '20px' }, text: conf.icon }),
-        U.el('div', {}, [
-          U.el('div', { class: 'strong', text: conf.label }),
-          U.el('div', {
-            class: 'muted', style: { fontSize: '11px' },
-            text: done
-              ? '入力済み ' + list.length + '件 / ' + U.fmtNum(U.sum(list, function (p) { return p[conf.hourKey]; }), 1) + 'h'
-              : (isToday ? '未入力です' : '入力がありません')
-          })
-        ]),
-        U.el('span', {
-          class: 'chip', style: {
-            marginLeft: 'auto',
-            background: done ? 'var(--ok-soft)' : '#fee2e2',
-            color: done ? 'var(--ok)' : 'var(--danger)'
-          }, text: done ? '✓ 入力済' : '未入力'
-        })
-      ]));
+      box.appendChild(U.el('span', {
+        class: 'pi-phase' + (done ? ' ok' : (isToday ? ' ng' : '')),
+        text: conf.icon + ' ' + conf.short + '　' + (done
+          ? '✓ ' + list.length + '件 ' + fmtH(U.sum(list, function (p) { return p[conf.hourKey]; })) + 'h'
+          : (isToday ? '未入力' : '入力なし'))
+      }));
     });
     return box;
   }
 
   function teamStatus(date) {
+    var members = State.members();
+    var pc = 0, rc = 0;
+    members.forEach(function (m) {
+      if (plansOf(date, m, 'plan').length) pc++;
+      if (plansOf(date, m, 'result').length) rc++;
+    });
     var card = U.el('div', { class: 'card mt16' }, [
-      U.el('div', { class: 'card-head' }, [
-        U.el('h3', { text: '👥 チームの入力状況（' + U.fmtDateFull(date) + '）' })
+      U.el('div', {
+        class: 'card-head', style: { cursor: 'pointer' },
+        onclick: function () { P.teamOpen = !P.teamOpen; App.render(); }
+      }, [
+        U.el('h3', { text: '👥 チームの入力状況（' + U.fmtDateFull(date) + '）' }),
+        U.el('span', { class: 'chip', style: chipStyle(pc === members.length), text: '始業前 ' + pc + '/' + members.length }),
+        U.el('span', { class: 'chip', style: chipStyle(rc === members.length), text: '終業前 ' + rc + '/' + members.length }),
+        U.el('div', { class: 'tools' }, [U.el('button', { class: 'btn btn-sm', text: P.teamOpen ? '▲ 閉じる' : '▼ 開く' })])
       ])
     ]);
+    if (!P.teamOpen) return card;
+
     var tbl = U.el('table', { class: 'grid-table' });
     tbl.appendChild(U.el('thead', {}, [
       U.el('tr', {}, ['担当者', '始業前', '終業前', '予定(h)', '実績(h)', '平均進捗'].map(function (h, i) {
@@ -415,7 +586,6 @@
       }))
     ]));
     var tb = U.el('tbody');
-    var members = State.members();
     if (!members.length) {
       card.appendChild(U.el('div', { class: 'empty', html: '<span class="big">👥</span>メンバーが登録されていません' }));
       return card;
@@ -423,17 +593,16 @@
     members.forEach(function (m) {
       var pl = plansOf(date, m, 'plan');
       var rs = plansOf(date, m, 'result');
-      var avg = rs.length ? U.sum(rs, function (p) { return p.progress; }) / rs.length : null;
+      var avg = U.avg(rs, function (p) { return p.progress; });
       function mark(ok) {
-        return U.el('span', {
-          class: 'chip', style: {
-            background: ok ? 'var(--ok-soft)' : '#fee2e2', color: ok ? 'var(--ok)' : 'var(--danger)'
-          }, text: ok ? '✓ 済' : '未'
-        });
+        return U.el('span', { class: 'chip', style: chipStyle(ok), text: ok ? '✓ 済' : '未' });
       }
       tb.appendChild(U.el('tr', {
-        style: { cursor: 'pointer' },
-        onclick: function () { P.member = m; State.setUser(m); P.key = null; App.render(); }
+        style: { cursor: 'pointer' }, title: m + ' さんの入力を表示',
+        onclick: function () {
+          if (!leaveOk()) return;
+          P.member = m; P.key = null; P.dirty = false; App.render({ top: true });
+        }
       }, [
         U.el('td', { class: 'strong' }, [
           U.el('span', {
@@ -446,8 +615,8 @@
         ]),
         U.el('td', {}, [mark(pl.length > 0)]),
         U.el('td', {}, [mark(rs.length > 0)]),
-        U.el('td', { class: 'num', text: U.fmtNum(U.sum(pl, function (p) { return p.hours; }), 1) }),
-        U.el('td', { class: 'num', text: U.fmtNum(U.sum(rs, function (p) { return p.actualHours; }), 1) }),
+        U.el('td', { class: 'num', text: U.fmtH(U.sum(pl, function (p) { return p.hours; })) }),
+        U.el('td', { class: 'num', text: U.fmtH(U.sum(rs, function (p) { return p.actualHours; })) }),
         U.el('td', { class: 'num', text: avg === null ? '' : U.fmtNum(avg, 0) + '%' })
       ]));
     });
@@ -456,12 +625,28 @@
     return card;
   }
 
+  function chipStyle(ok) {
+    return { background: ok ? 'var(--ok-soft)' : '#fee2e2', color: ok ? 'var(--ok)' : 'var(--danger)' };
+  }
+
   /* ------------------------------------------------ ビュー */
+  function switchTo(member, date) {
+    if (!leaveOk()) { App.render(); return; }
+    if (member !== undefined) P.member = member;
+    if (date !== undefined) P.date = date;
+    P.key = null;
+    P.dirty = false;
+    App.render();
+  }
+
   Views.planInput = {
     title: '日次入力',
-    desc: '始業前に本日の予定、終業前に本日の実績（工程・進捗率）を入力します',
+    desc: '1 つの作業を 1 行で入力します。始業前に左の「予定」、終業前に同じ行の右の「実績」を入力してください',
     icon: '📝',
     app: 'plan',
+    /* 未保存の編集中は自動同期による再描画を止める */
+    busy: function () { return !!P.dirty; },
+    onSave: function () { save(); },
     render: function (root) {
       var member = me();
       var date = curDate();
@@ -474,7 +659,7 @@
         (function () {
           var s = U.el('select', {
             style: { minWidth: '150px' },
-            onchange: function () { P.member = this.value; State.setUser(this.value); P.key = null; App.render(); }
+            onchange: function () { switchTo(this.value); }
           });
           State.members().forEach(function (m) { s.appendChild(U.el('option', { value: m, text: m, selected: m === member })); });
           if (!State.members().length) s.appendChild(U.el('option', { value: '', text: '（メンバー未登録）' }));
@@ -486,24 +671,25 @@
         U.el('label', { text: '対象日' }),
         U.el('input', {
           type: 'date', value: date,
-          onchange: function () { P.date = this.value || todayIso(); P.key = null; App.render(); }
+          onchange: function () { switchTo(undefined, this.value || todayIso()); }
         })
       ]));
       bar.appendChild(U.el('div', { class: 'row-flex', style: { marginTop: '12px' } }, [
-        U.el('button', { class: 'btn btn-sm', text: '‹ 前日', onclick: function () { P.date = U.iso(U.addDays(U.parseDate(date), -1)); P.key = null; App.render(); } }),
-        U.el('button', { class: 'btn btn-sm', text: '本日', onclick: function () { P.date = todayIso(); P.key = null; App.render(); } }),
-        U.el('button', { class: 'btn btn-sm', text: '翌日 ›', onclick: function () { P.date = U.iso(U.addDays(U.parseDate(date), 1)); P.key = null; App.render(); } }),
+        U.el('button', { class: 'btn btn-sm', text: '‹ 前日', onclick: function () { switchTo(undefined, U.iso(U.addDays(U.parseDate(date), -1))); } }),
+        U.el('button', { class: 'btn btn-sm', text: '本日', onclick: function () { switchTo(undefined, todayIso()); } }),
+        U.el('button', { class: 'btn btn-sm', text: '翌日 ›', onclick: function () { switchTo(undefined, U.iso(U.addDays(U.parseDate(date), 1))); } }),
         U.el('strong', {
           style: { marginLeft: '8px', color: date === todayIso() ? 'var(--primary)' : null },
           text: U.fmtDateFull(date) + '（' + WD[U.parseDate(date).getDay()] + '）' + (date === todayIso() ? ' ＝ 本日' : '')
         })
       ]));
+      bar.appendChild(U.el('div', { class: 'fld', style: { marginTop: '12px' } }, [summary(date, member)]));
       bar.appendChild(U.el('div', { class: 'spacer' }));
       bar.appendChild(U.el('button', {
         class: 'btn btn-sm', text: '📌 取組み予定を登録',
         title: '一定期間取り組む作業を登録します（日次入力から選べるようになります）',
         onclick: function () {
-          Views.planAssign._editor({ member: member, date: date }, function () { P.key = null; App.render(); });
+          Views.planAssign._editor({ member: member, date: date }, function () { App.render(); });
         }
       }));
       bar.appendChild(U.el('button', {
@@ -517,28 +703,7 @@
         return;
       }
 
-      root.appendChild(statusStrip(date, member));
-
-      var sheets = U.el('div', {
-        class: 'mt16',
-        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(880px, 1fr))', gap: '12px', alignItems: 'start' }
-      });
-      sheets.appendChild(sheet(PHASE.plan));
-      sheets.appendChild(sheet(PHASE.result));
-      root.appendChild(sheets);
-
-      var pl = plansOf(date, member, 'plan');
-      var rs = plansOf(date, member, 'result');
-      var planned = U.sum(pl, function (p) { return p.hours; });
-      var actual = U.sum(rs, function (p) { return p.actualHours; });
-      var target = State.settings().workHoursPerDay || 7.5;
-      root.appendChild(U.el('div', { class: 'grid k4 mt16' }, [
-        Views._helpers.kpi('本日の予定工数', U.fmtNum(planned, 1), 'h', '基準 ' + target + 'h', planned > target ? 'red' : 'blue'),
-        Views._helpers.kpi('本日の実績工数', U.fmtNum(actual, 1), 'h', planned ? '予定比 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
-        Views._helpers.kpi('実績登録', String(rs.length), '件', '完了 ' + rs.filter(function (p) { return p.status === '完了'; }).length + '件', 'violet'),
-        Views._helpers.kpi('平均進捗', rs.length ? U.fmtNum(U.sum(rs, function (p) { return p.progress; }) / rs.length, 0) : '—', '%', '実績行の平均', 'amber')
-      ]));
-
+      root.appendChild(sheet());
       root.appendChild(teamStatus(date));
     }
   };
@@ -551,18 +716,25 @@
       src = plansOf(U.iso(probe), me(), 'plan');
     }
     if (!src.length) { U.toast('直近7日間に予定がありません', 'warn'); return; }
+    P.rows = P.rows.filter(function (r) { return !isBlank(r); });
     src.forEach(function (p) {
-      P.rows.plan.push(Object.assign(emptyRow('plan'), {
+      var r = newRow(true, {
         category: p.category, project: p.project, title: p.title,
         programId: p.programId, taskId: p.taskId, assignmentId: p.assignmentId,
-        projectCode: p.projectCode, workCode: p.workCode,
-        hours: p.hours
-      }));
+        projectCode: p.projectCode, workCode: p.workCode, hours: p.hours
+      });
+      r.dirty = true;
+      P.rows.push(r);
     });
-    P.rows.plan = P.rows.plan.filter(function (r) { return !isBlank(r); });
+    P.dirty = true;
     U.toast(U.fmtDate(U.iso(probe)) + ' の予定 ' + src.length + ' 件を複製しました（未保存）', 'ok');
     App.render();
   }
+
+  /* 編集中に画面を閉じる・再読込するときの警告 */
+  global.addEventListener('beforeunload', function (e) {
+    if (P.dirty && App.current === 'planInput') { e.preventDefault(); e.returnValue = ''; }
+  });
 
   /* ------------------------------------------------ 単票エディタ（他ビューから利用） */
   function planEditor(base, onSaved) {
@@ -671,7 +843,7 @@
             U.loading(true);
             API.deletePlan(base.id).then(function () {
               U.toast('削除しました', 'ok'); U.closeDrawer(); return State.reloadPlans();
-            }).then(function () { P.key = null; onSaved && onSaved(); })
+            }).then(function () { onSaved && onSaved(); })
               .catch(function (e) { U.toast(e.message, 'err'); })
               .finally(function () { U.loading(false); });
           });
@@ -690,7 +862,7 @@
           .then(function () {
             U.toast('保存しました', 'ok'); U.closeDrawer(); return State.reloadPlans();
           })
-          .then(function () { P.key = null; onSaved && onSaved(); })
+          .then(function () { onSaved && onSaved(); })
           .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
           .finally(function () { U.loading(false); });
       }

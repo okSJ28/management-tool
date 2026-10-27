@@ -4,15 +4,32 @@
 (function (global) {
   'use strict';
 
-  function currentUser() {
-    try { return localStorage.getItem('dpm.user') || ''; } catch (e) { return ''; }
-  }
+  var ERROR_TEXT = {
+    'conflict': '他の人が先にこのデータを更新しました。画面を開き直して最新の内容を確認してから再度保存してください。',
+    'not-found': '対象のデータが見つかりません（他の人が削除した可能性があります）。',
+    'file-not-found': 'ファイルが見つかりません。一覧を再表示してください。',
+    'read-only-mode': '閲覧専用モードのため保存できません。',
+    'payload-too-large': 'データが大きすぎます。ファイルを分割して取り込んでください。',
+    'invalid-json': '送信データの形式が不正です。',
+    'openpyxl-missing': 'Excel処理用の部品(openpyxl)が未導入です。起動用batを実行し直してください。',
+    'host-not-allowed': 'このURLからはアクセスできません。共有用URLを使用してください。',
+    'unauthorized': 'ログインの有効期限が切れました。もう一度ログインしてください。',
+    'forbidden': 'この操作は管理者のみ実行できます。',
+    'login-failed': 'IDまたはパスワードが正しくありません。',
+    'user-exists': 'そのIDは既に登録されています。',
+    'invalid-user-id': 'IDは半角英数字・ハイフン・アンダースコア（32文字以内）で入力してください。',
+    'name-required': '氏名を入力してください。',
+    'invalid-role': '権限の指定が不正です。',
+    'last-admin': '管理者が1人もいなくなるため、この変更はできません。',
+    'cannot-delete-self': '自分自身のアカウントは削除できません。',
+    'wrong-password': '現在のパスワードが正しくありません。',
+    'weak-password': 'パスワードは4文字以上で入力してください。',
+    'internal-error': 'サーバー内部でエラーが発生しました。入力ファイルの形式を確認するか、管理者に data\\server.log を確認してもらってください。'
+  };
 
   function req(method, url, body, timeoutMs) {
     var limit = timeoutMs || 30000;
-    var opt = { method: method, headers: {} };
-    var user = currentUser();
-    if (user) opt.headers['X-User'] = encodeURIComponent(user);
+    var opt = { method: method, headers: {}, credentials: 'same-origin' };
     if (body !== undefined) {
       opt.headers['Content-Type'] = 'application/json';
       opt.body = JSON.stringify(body);
@@ -26,7 +43,13 @@
     return fetch(url, opt).then(function (res) {
       if (!res.ok) {
         return res.json().catch(function () { return { error: res.statusText }; })
-          .then(function (j) { throw new Error(j.error || ('HTTP ' + res.status)); });
+          .then(function (j) {
+            var code = j.error || ('HTTP ' + res.status);
+            var err = new Error(ERROR_TEXT[code] || code);
+            err.code = code;
+            if (code === 'unauthorized' && typeof API.onUnauthorized === 'function') API.onUnauthorized();
+            throw err;
+          });
       }
       return res.json();
     }).catch(function (e) {
@@ -63,17 +86,33 @@
       return req('POST', '/api/import/excel', { file: file, mode: mode, withEntries: withEntries }, IMPORT_TIMEOUT);
     },
     importCsv: function (text, type, mode) { return req('POST', '/api/import/csv', { text: text, type: type, mode: mode }, IMPORT_TIMEOUT); },
-    importJson: function (data) { return req('POST', '/api/import/json', { data: data }, IMPORT_TIMEOUT); }
+    importJson: function (data) { return req('POST', '/api/import/json', { data: data }, IMPORT_TIMEOUT); },
+
+    /* ---- ログイン / アカウント ---- */
+    login: function (id, password) { return req('POST', '/api/auth/login', { id: id, password: password }); },
+    logout: function () { return req('POST', '/api/auth/logout', {}); },
+    me: function () { return req('GET', '/api/auth/me'); },
+    changePassword: function (current, password) { return req('PUT', '/api/auth/password', { current: current, password: password }); },
+
+    /* ---- ユーザー管理（管理者のみ） ---- */
+    users: function () { return req('GET', '/api/users'); },
+    addUser: function (u) { return req('POST', '/api/users', u); },
+    updateUser: function (id, patch) { return req('PUT', '/api/users/' + encodeURIComponent(id), patch); },
+    deleteUser: function (id) { return req('DELETE', '/api/users/' + encodeURIComponent(id)); },
+
+    /* 401(ログイン切れ)を受けたときに呼ばれる。app.js が設定する */
+    onUnauthorized: null
   };
 
   /* --------------------------------------------------- state */
   var State = {
     schema: null, enums: null, masters: null, tasks: [], plans: [], entries: {}, savedViews: [],
     folder: '', hasExcel: true, search: '', readOnly: false, shared: false,
-    dataDir: '', database: '', backupKeep: 30,
+    dataDir: '', database: '', backupKeep: 30, account: null,
     fieldMap: {}, typeMap: {},
 
     init: function (data) {
+      this.account = data.account || null;
       this.schema = data.schema;
       this.enums = data.enums;
       this.masters = data.masters;
@@ -97,12 +136,19 @@
       return this;
     },
 
+    /* ログイン中ユーザーの担当者名（更新者として記録される名前） */
     user: function () {
-      try { return localStorage.getItem('dpm.user') || ''; } catch (e) { return ''; }
+      var a = this.account;
+      return a ? (a.member || a.name || '') : '';
     },
-    setUser: function (name) {
-      try { localStorage.setItem('dpm.user', name || ''); } catch (e) { /* ignore */ }
+    /* 日次入力などで既定にする自分の担当者名（担当者一覧にいない特権管理者などは先頭の担当者） */
+    me: function () {
+      var mine = this.user(), list = this.members();
+      return list.indexOf(mine) >= 0 ? mine : (list[0] || '');
     },
+    /* owner = 特権管理者（管理者と同じ権限。担当者には含めない） */
+    isAdmin: function () { return !!(this.account && (this.account.role === 'admin' || this.account.role === 'owner')); },
+    roleLabel: function (role) { return { owner: '特権管理者', admin: '管理者', user: '一般' }[role] || role; },
 
     field: function (key) { return this.fieldMap[key] || { key: key, label: key, type: 'text', types: [] }; },
     fieldsOf: function (typeKey) {
@@ -139,6 +185,8 @@
       });
       (this.plans || []).forEach(function (p) { if (p.member) set.add(p.member); });
       Object.keys(this.entries || {}).forEach(function (m) { set.add(m); });
+      // 設定で外した担当者・特権管理者は、過去データに名前があっても一覧に出さない
+      (this.masters.excludedMembers || []).forEach(function (m) { set.delete(m); });
       return Array.from(set).filter(Boolean).sort();
     },
 

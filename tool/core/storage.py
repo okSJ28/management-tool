@@ -23,6 +23,10 @@ DB = Database(CONFIG.db_path)
 _LOCK = threading.RLock()
 
 
+class ConflictError(Exception):
+    """The record was changed by someone else since the client loaded it."""
+
+
 def configure(data_dir: Path) -> None:
     """Move the data directory (e.g. onto a shared network folder)."""
     CONFIG.data_dir = Path(data_dir)
@@ -178,10 +182,11 @@ class Store:
         masters = data["masters"]
         members = list(masters.get("members") or [])
         projects = list(masters.get("projects") or [])
+        excluded = set(masters.get("excludedMembers") or [])
         for task in data["tasks"]:
             for key in ("assignee1", "assignee2"):
                 name = task.get(key)
-                if name and name not in members:
+                if name and name not in members and name not in excluded:
                     members.append(name)
             project = task.get("project")
             if project and project not in projects:
@@ -205,11 +210,14 @@ class Store:
             self.save()
             return task
 
-    def update_task(self, task_id: str, patch: dict) -> dict | None:
+    def update_task(self, task_id: str, patch: dict,
+                    expected_updated_at: str | None = None) -> dict | None:
         with _LOCK:
             data = self.load()
             for index, task in enumerate(data["tasks"]):
                 if task.get("id") == task_id:
+                    if expected_updated_at and task.get("updatedAt") != expected_updated_at:
+                        raise ConflictError(task)
                     merged = {**task, **patch, "id": task_id}
                     updated = model.normalize_task(merged, self.settings)
                     updated["id"] = task_id
@@ -295,12 +303,48 @@ class Store:
                 if key == "settings":
                     data["masters"]["settings"].update(value or {})
                 else:
+                    if key == "members":
+                        self._track_excluded(data["masters"], value or [])
                     data["masters"][key] = value
             self.recompute_all()
             # 計算パラメータ変更で全タスクの指標が変わるため全件書き込み
             self._mark_full()
             self.save()
             return data["masters"]
+
+    @staticmethod
+    def _track_excluded(masters: dict, new_members: list) -> None:
+        """担当者マスタから外した名前を記録し、過去データから自動で復活しないようにする。"""
+        removed = [m for m in masters.get("members") or [] if m not in new_members]
+        excluded = [m for m in masters.get("excludedMembers") or [] if m not in new_members]
+        masters["excludedMembers"] = excluded + [m for m in removed if m not in excluded]
+
+    def ensure_members(self, names) -> None:
+        """Add people to the member master (e.g. a newly created login user)."""
+        with _LOCK:
+            masters = self.load()["masters"]
+            members = masters.setdefault("members", [])
+            excluded = masters.get("excludedMembers") or []
+            added = [name for name in names if name and name not in members]
+            restored = [name for name in names if name in excluded]
+            if added or restored:
+                members.extend(added)
+                masters["excludedMembers"] = [m for m in excluded if m not in names]
+                self._pending["masters"] = True
+                self.save()
+
+    def exclude_members(self, names) -> None:
+        """Remove people from the member master and keep them out (e.g. 特権管理者)."""
+        with _LOCK:
+            masters = self.load()["masters"]
+            names = [name for name in names if name]
+            members = masters.get("members") or []
+            excluded = masters.get("excludedMembers") or []
+            if any(n in members for n in names) or any(n not in excluded for n in names):
+                masters["members"] = [m for m in members if m not in names]
+                masters["excludedMembers"] = excluded + [n for n in names if n not in excluded]
+                self._pending["masters"] = True
+                self.save()
 
     # ----------------------------------------------------------- entries
     def set_entry(self, member: str, month: str, value: str | None) -> dict:
@@ -387,8 +431,9 @@ class Store:
         masters = data["masters"]
         members = list(masters.get("members") or [])
         projects = list(masters.get("projects") or [])
+        excluded = set(masters.get("excludedMembers") or [])
         for plan in data.get("plans", []):
-            if plan.get("member") and plan["member"] not in members:
+            if plan.get("member") and plan["member"] not in members and plan["member"] not in excluded:
                 members.append(plan["member"])
             if plan.get("project") and plan["project"] not in projects:
                 projects.append(plan["project"])

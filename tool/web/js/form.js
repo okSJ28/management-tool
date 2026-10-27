@@ -23,7 +23,9 @@
           .forEach(function (k) { t[k] = null; });
       } else {
         var base = n('baseStep'), nw = n('newStep'), md = n('modStep');
-        var conv = base * s.baseCoef + nw * s.newCoef + md * s.modCoef;
+        // Excel と同じく区分で式を切り替える（新規以外は修正扱い）
+        var isNew = String(t.kubun || '').trim() === '新規';
+        var conv = isNew ? nw * s.newCoef : base * s.baseCoef + md * s.modCoef;
         t.convStep = (base || nw || md) ? r(conv, 2) : null;
         var mk = n('hourMake'), ck = n('hourCheck'), vf = n('hourVerify');
         var total = mk + ck + vf;
@@ -32,7 +34,7 @@
         t.testRatio = r(div((ck + vf) * 100, total), 1);
         t.prodNew = nw ? r(div(nw, mk), 2) : null;
         t.prodMod = md ? r(div(md, mk), 2) : null;
-        t.prodMonth = r(div((nw + md) * s.monthHours, total), 1);
+        t.prodMonth = r(div((isNew ? nw : md) * s.monthHours, total), 1);
         var it = n('issueCode') + n('issueCheck') + n('issueVerify');
         var anyIssue = has('issueCode') || has('issueCheck') || has('issueVerify');
         t.issueTotal = anyIssue ? it : null;
@@ -92,7 +94,7 @@
     } else if (field.type === 'date') {
       input = U.el('input', { type: 'date', value: value || '' });
     } else if (field.type === 'calc') {
-      input = U.el('input', { type: 'text', readonly: true, value: value === null || value === undefined ? '' : U.fmtNum(value, field.decimals) });
+      input = U.el('input', { type: 'text', readonly: true, tabindex: '-1', placeholder: '自動計算', title: '自動計算項目（入力不要）', value: value === null || value === undefined ? '' : U.fmtNum(value, field.decimals) });
     } else {
       input = U.el('input', { type: 'text', value: value === null || value === undefined ? '' : value });
     }
@@ -159,7 +161,9 @@
         var cell = U.el('div', { class: 'field' + (f.type === 'textarea' || f.key === 'project' ? ' span2' : '') });
         cell.appendChild(U.el('label', {}, [
           document.createTextNode(f.label),
-          f.required ? U.el('span', { class: 'req', text: '*' }) : null
+          f.required ? U.el('span', { class: 'req', text: '*' }) : null,
+          (f.key === 'programId' || f.key === 'project') ? U.el('span', { class: 'req', text: '※プログラムID・案件名のどちらか必須' }) : null,
+          f.type === 'calc' ? U.el('span', { class: 'hint', text: ' (自動)' }) : null
         ]));
         var input = control(f, draft[f.key], function (v) {
           draft[f.key] = v;
@@ -182,20 +186,23 @@
   function openEditor(task, onSaved) {
     var isNew = !task || !task.id;
     var base = task || { type: 'mfg', status: '', progress: null };
-    var form = buildForm(base, {});
+    var form = buildForm(base, { onRebuild: function (b) { form = b; } });
     var foot = [];
+    var saving = false;
 
     function save() {
+      if (saving) return;
       var d = form.draft;
-      if (!d.programId && !d.project) { U.toast('プログラムIDまたは案件名を入力してください', 'warn'); return; }
+      if (!d.programId && !d.project) { U.toast('プログラムIDまたは案件名のどちらかを入力してください', 'warn'); return; }
+      saving = true;
       U.loading(true);
-      var p = isNew ? API.addTask(d) : API.updateTask(d.id, d);
+      var p = isNew ? API.addTask(d) : API.updateTask(d.id, Object.assign({}, d, { _baseUpdatedAt: base.updatedAt || null }));
       p.then(function () {
         U.toast(isNew ? '登録しました' : '更新しました', 'ok');
         U.closeDrawer();
         return State.reload();
       }).then(function () { onSaved && onSaved(); })
-        .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
+        .catch(function (e) { saving = false; U.toast('エラー: ' + e.message, 'err'); })
         .finally(function () { U.loading(false); });
     }
 
@@ -227,8 +234,12 @@
 
     U.openDrawer(isNew ? '新規登録' : ((base.programId || '') + ' を編集'), form.node, foot);
 
-    document.addEventListener('keydown', function esc(e) {
-      if (e.key === 'Escape') { U.closeDrawer(); document.removeEventListener('keydown', esc); }
+    document.addEventListener('keydown', function onKey(e) {
+      // ドロワーを閉じた後に古いフォームが Ctrl+S で再保存されないようにする
+      if (document.getElementById('drawer').hidden || !form.node.isConnected) {
+        document.removeEventListener('keydown', onKey); return;
+      }
+      if (e.key === 'Escape') { U.closeDrawer(); document.removeEventListener('keydown', onKey); }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
     });
   }

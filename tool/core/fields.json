@@ -122,7 +122,7 @@
       "excel": ["換算stp", "換算step"],
       "width": 100,
       "decimals": 2,
-      "help": "母体step×0.06 + 新規step×1 + 修正step×2"
+      "help": "新規: 新規step×1 ／ 修正: 母体step×0.06 + 修正step×2"
     },
     {
       "key": "startDate",
@@ -330,7 +330,7 @@
       "types": ["mfg"],
       "width": 120,
       "decimals": 1,
-      "help": "(新規step+修正step)÷総工数×150"
+      "help": "新規: 新規step÷総工数×150 ／ 修正: 修正step÷総工数×150"
     },
     {
       "key": "issueTotal",

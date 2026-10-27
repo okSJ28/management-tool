@@ -98,7 +98,7 @@
         var result = p.kind === 'result';
         var tail = result
           ? (p.progress === null || p.progress === undefined ? '' : ' ' + p.progress + '%')
-          : (p.hours ? ' ' + U.fmtNum(p.hours, 1) + 'h' : '');
+          : (p.hours ? ' ' + U.fmtH(p.hours) + 'h' : '');
         return U.el('span', {
           class: 'chip', style: {
             background: result ? 'transparent' : c + '1f', color: c, cursor: 'pointer',
@@ -130,7 +130,7 @@
     var color = U.colorOf(name);
 
     root.appendChild(U.el('div', { class: 'row-flex', style: { marginBottom: '12px' } }, [
-      U.el('button', { class: 'btn btn-sm', text: '‹ 一覧に戻る', onclick: function () { selectedMember = null; App.render(); } }),
+      U.el('button', { class: 'btn btn-sm', text: '‹ 一覧に戻る', onclick: function () { selectedMember = null; App.render({ top: true }); } }),
       U.el('div', { class: 'avatar', style: { background: color }, text: U.initials(name) }),
       U.el('h2', { text: name, style: { fontSize: '18px' } }),
       U.el('div', { class: 'spacer', style: { flex: 1 } }),
@@ -154,7 +154,7 @@
         labels: months.map(U.monthLabel), area: true,
         series: [
           { name: '完了件数', color: '#2563eb', values: months.map(function (m) { return all.filter(function (t) { return U.monthKey(t.endDate) === m; }).length; }) },
-          { name: '換算step(÷10)', color: '#7c3aed', values: months.map(function (m) { return Math.round(U.sum(mfgAll.filter(function (t) { return U.monthKey(t.endDate) === m; }), function (t) { return t.convStep; }) / 10); }) }
+          { name: '換算step', color: '#7c3aed', axis: 'right', values: months.map(function (m) { return Math.round(U.sum(mfgAll.filter(function (t) { return U.monthKey(t.endDate) === m; }), function (t) { return t.convStep; })); }) }
         ], height: 230
       });
     }));
@@ -163,7 +163,7 @@
         labels: months.map(U.monthLabel),
         series: [
           { name: '月換算生産性', color: '#16a34a', values: months.map(function (m) { return round1(U.avg(mfgAll.filter(function (t) { return U.monthKey(t.endDate) === m; }), function (t) { return t.prodMonth; })); }) },
-          { name: '品質(指摘/KS)', color: '#dc2626', values: months.map(function (m) { return round1(U.avg(mfgAll.filter(function (t) { return U.monthKey(t.endDate) === m; }), function (t) { return t.quality; })); }) }
+          { name: '品質(指摘/KS)', color: '#dc2626', axis: 'right', values: months.map(function (m) { return round1(U.avg(mfgAll.filter(function (t) { return U.monthKey(t.endDate) === m; }), function (t) { return t.quality; })); }) }
         ], height: 230
       });
     }));
@@ -199,7 +199,7 @@
     ]);
     var wrap = U.el('div', { class: 'table-wrap' });
     var tbl = U.el('table', { class: 'grid-table' });
-    tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['ステータス', '種別', 'プログラムID', '案件名', '区分', '開始', '終了', '換算step', '工数', '指摘'].map(function (h) { return U.el('th', { text: h }); }))]));
+    tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['ステータス', '種別', 'システム', 'リソース区分', 'プログラムID', '案件名', '区分', '開始', '終了', '換算step', '工数', '指摘'].map(function (h) { return U.el('th', { text: h }); }))]));
     var tb = U.el('tbody');
     all.forEach(function (t) {
       tb.appendChild(U.el('tr', {
@@ -208,6 +208,8 @@
       }, [
         U.el('td', {}, [Form.statusChip(t.effectiveStatus)]),
         U.el('td', {}, [U.el('span', { class: 'tag', text: State.typeLabel(t.type) })]),
+        U.el('td', { text: t.system || '' }),
+        U.el('td', { text: t.resource || '' }),
         U.el('td', { class: 'mono strong', text: t.programId || '' }),
         U.el('td', { style: { maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }, title: t.project || '', text: t.project || '' }),
         U.el('td', { text: t.kubun || '' }),
@@ -253,7 +255,7 @@
 
       var grid = U.el('div', { class: 'grid k3' });
       members.forEach(function (m) {
-        grid.appendChild(memberCard(m, function (name) { selectedMember = name; App.render(); }));
+        grid.appendChild(memberCard(m, function (name) { selectedMember = name; App.render({ top: true }); }));
       });
       root.appendChild(grid);
 

@@ -9,7 +9,7 @@ from core.config import CONFIG
 from core.storage import STORE
 
 from ..http import Request, Response, error, json_response
-from ..router import Router
+from ..router import ADMIN, Router
 
 router = Router()
 
@@ -59,8 +59,9 @@ def import_csv(req: Request) -> Response:
     return json_response(STORE.merge_tasks(rows, payload.get("mode", "upsert")))
 
 
-@router.post("/api/import/json")
+@router.post("/api/import/json", auth=ADMIN)
 def import_json(req: Request) -> Response:
+    """Full restore. Admin only because it also overwrites the settings."""
     payload = req.json()
     incoming = payload.get("data") or {}
     data = STORE.load()

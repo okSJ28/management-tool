@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import urllib.parse
 from dataclasses import dataclass, field
+from http.cookies import CookieError, SimpleCookie
 from typing import Any
 
 
@@ -25,15 +26,23 @@ class Request:
     params: dict[str, str] = field(default_factory=dict)
     headers: dict[str, str] = field(default_factory=dict)
     body: bytes = b""
+    # The signed-in user (set by the server from the session cookie).
+    account: dict[str, Any] | None = None
 
     @property
     def user(self) -> str:
-        raw = self.headers.get("X-User") or ""
+        """Name recorded as the editor: the signed-in user's member name."""
+        account = self.account or {}
+        return (account.get("member") or account.get("name") or "unknown")[:40]
+
+    def cookie(self, name: str) -> str:
+        jar = SimpleCookie()
         try:
-            name = urllib.parse.unquote(raw)
-        except Exception:  # noqa: BLE001
-            name = ""
-        return name.strip()[:40] or "unknown"
+            jar.load(self.headers.get("Cookie") or "")
+        except CookieError:
+            return ""
+        morsel = jar.get(name)
+        return morsel.value if morsel else ""
 
     def json(self) -> dict:
         if not self.body:
