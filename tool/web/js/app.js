@@ -145,7 +145,6 @@
       badge.textContent = a ? '👤 ' + a.name + (State.isAdmin() ? '（' + State.roleLabel(a.role) + '）' : '') : '👤 未ログイン';
       badge.title = 'アカウント（パスワード変更・ログアウト）';
       badge.className = 'btn btn-sm' + (State.isAdmin() ? ' role-admin' : '');
-      document.getElementById('sharedBadge').hidden = !State.shared;
     }
   };
 

@@ -15,6 +15,7 @@
     'host-not-allowed': 'このURLからはアクセスできません。共有用URLを使用してください。',
     'unauthorized': 'ログインの有効期限が切れました。もう一度ログインしてください。',
     'forbidden': 'この操作は管理者のみ実行できます。',
+    'forbidden-member': '他の担当者の入力は登録・変更できません（管理者のみ可能です）。',
     'login-failed': 'IDまたはパスワードが正しくありません。',
     'user-exists': 'そのIDは既に登録されています。',
     'invalid-user-id': 'IDは半角英数字・ハイフン・アンダースコア（32文字以内）で入力してください。',
@@ -144,10 +145,13 @@
     /* 日次入力などで既定にする自分の担当者名（担当者一覧にいない特権管理者などは先頭の担当者） */
     me: function () {
       var mine = this.user(), list = this.members();
+      if (!this.isAdmin()) return mine;
       return list.indexOf(mine) >= 0 ? mine : (list[0] || '');
     },
     /* owner = 特権管理者（管理者と同じ権限。担当者には含めない） */
     isAdmin: function () { return !!(this.account && (this.account.role === 'admin' || this.account.role === 'owner')); },
+    /* 業務予定・日次入力を登録・変更できる担当者か（一般ユーザーは自分の分のみ） */
+    canEdit: function (member) { return this.isAdmin() || (!!member && member === this.user()); },
     roleLabel: function (role) { return { owner: '特権管理者', admin: '管理者', user: '一般' }[role] || role; },
 
     field: function (key) { return this.fieldMap[key] || { key: key, label: key, type: 'text', types: [] }; },

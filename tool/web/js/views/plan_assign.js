@@ -27,6 +27,8 @@
       status: '予定', hours: null
     }, base || {});
     draft.kind = 'assignment';
+    // 一般ユーザーは他の担当者の取組み予定を閲覧のみ
+    var editable = State.canEdit(draft.member);
 
     var grid = U.el('div', { class: 'form-grid' });
     function field(label, node, span, hint) {
@@ -53,7 +55,9 @@
       return s;
     }
 
-    field('担当者', select(State.members(), 'member'));
+    var memberSel = select(State.isAdmin() ? State.members() : [draft.member], 'member');
+    memberSel.disabled = !State.isAdmin();
+    field('担当者', memberSel);
     field('工程（作業区分）', select(State.masters.planCategories || [], 'category', 'value'));
     field('開始日', input({ type: 'date', value: draft.date || '' }, 'date'));
     field('終了日', input({ type: 'date', value: draft.endDate || '' }, 'endDate'));
@@ -107,6 +111,15 @@
         U.el('div', { text: '実績工数の積上: ' + U.fmtH(roll.actualHours) + 'h' }),
         U.el('div', { text: '最新進捗: ' + (roll.progress === null ? '—' : roll.progress + '%' + (roll.progressAt ? '（' + U.fmtDateFull(roll.progressAt) + '）' : '')) })
       ]), true);
+    }
+
+    if (!editable) {
+      U.openDrawer('取組み予定を表示', grid, [
+        U.el('span', { class: 'muted', text: '他の担当者の取組み予定は変更できません' }),
+        U.el('div', { class: 'spacer' }),
+        U.el('button', { class: 'btn', text: '閉じる', onclick: U.closeDrawer })
+      ]);
+      return;
     }
 
     var foot = [];

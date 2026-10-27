@@ -24,16 +24,27 @@
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
   var PROGRESS_STEPS = [0, 25, 50, 75, 100];
   var SHARED = ['category', 'project', 'title', 'assignmentId', 'projectCode', 'workCode', 'programId', 'taskId'];
+  var LEAVE = '休暇';
 
   function kindOf(p) {
     return p && (p.kind === 'result' || p.kind === 'assignment') ? p.kind : 'plan';
   }
-  function me() { return P.member || State.me(); }
+  /* 一般ユーザーは自分の担当者に固定。管理者は他の担当者に切り替えられる */
+  function me() { return (State.isAdmin() && P.member) || State.me(); }
   function todayIso() { return U.iso(U.today()); }
   function curDate() { return P.date || todayIso(); }
 
   function plansOf(iso, member, kind) {
     return State.plansOnDate(iso, member).filter(function (p) { return kindOf(p) === kind; });
+  }
+
+  /* 予定がすべて休暇の日は終業前入力が不要なので、実績が無くても済とみなす */
+  function isLeaveDay(iso, member) {
+    var list = plansOf(iso, member, 'plan');
+    return list.length > 0 && list.every(function (p) { return p.category === LEAVE; });
+  }
+  function resultDone(iso, member) {
+    return plansOf(iso, member, 'result').length > 0 || isLeaveDay(iso, member);
   }
 
   /* 対象日にかかっている取組み予定 */
@@ -548,10 +559,11 @@
     ['plan', 'result'].forEach(function (kind) {
       var conf = PHASE[kind];
       var list = plansOf(date, member, kind);
-      var done = list.length > 0;
+      var leave = !list.length && kind === 'result' && isLeaveDay(date, member);
+      var done = list.length > 0 || leave;
       box.appendChild(U.el('span', {
         class: 'pi-phase' + (done ? ' ok' : (isToday ? ' ng' : '')),
-        text: conf.icon + ' ' + conf.short + '　' + (done
+        text: conf.icon + ' ' + conf.short + '　' + (leave ? '✓ 休暇のため不要' : done
           ? '✓ ' + list.length + '件 ' + fmtH(U.sum(list, function (p) { return p[conf.hourKey]; })) + 'h'
           : (isToday ? '未入力' : '入力なし'))
       }));
@@ -564,7 +576,7 @@
     var pc = 0, rc = 0;
     members.forEach(function (m) {
       if (plansOf(date, m, 'plan').length) pc++;
-      if (plansOf(date, m, 'result').length) rc++;
+      if (resultDone(date, m)) rc++;
     });
     var card = U.el('div', { class: 'card mt16' }, [
       U.el('div', {
@@ -594,15 +606,18 @@
       var pl = plansOf(date, m, 'plan');
       var rs = plansOf(date, m, 'result');
       var avg = U.avg(rs, function (p) { return p.progress; });
-      function mark(ok) {
-        return U.el('span', { class: 'chip', style: chipStyle(ok), text: ok ? '✓ 済' : '未' });
+      var leave = !rs.length && isLeaveDay(date, m);
+      function mark(ok, text) {
+        return U.el('span', { class: 'chip', style: chipStyle(ok), text: text || (ok ? '✓ 済' : '未') });
       }
+      // 他の担当者の入力に切り替えられるのは管理者のみ
+      var open = State.isAdmin();
       tb.appendChild(U.el('tr', {
-        style: { cursor: 'pointer' }, title: m + ' さんの入力を表示',
-        onclick: function () {
+        style: { cursor: open ? 'pointer' : null }, title: open ? m + ' さんの入力を表示' : null,
+        onclick: open ? function () {
           if (!leaveOk()) return;
           P.member = m; P.key = null; P.dirty = false; App.render({ top: true });
-        }
+        } : null
       }, [
         U.el('td', { class: 'strong' }, [
           U.el('span', {
@@ -614,7 +629,7 @@
           document.createTextNode(m)
         ]),
         U.el('td', {}, [mark(pl.length > 0)]),
-        U.el('td', {}, [mark(rs.length > 0)]),
+        U.el('td', {}, [mark(rs.length > 0 || leave, leave ? '✓ 済（休暇）' : null)]),
         U.el('td', { class: 'num', text: U.fmtH(U.sum(pl, function (p) { return p.hours; })) }),
         U.el('td', { class: 'num', text: U.fmtH(U.sum(rs, function (p) { return p.actualHours; })) }),
         U.el('td', { class: 'num', text: avg === null ? '' : U.fmtNum(avg, 0) + '%' })
@@ -657,12 +672,15 @@
       bar.appendChild(U.el('div', { class: 'fld' }, [
         U.el('label', { text: '担当者（自分）' }),
         (function () {
+          var admin = State.isAdmin();
           var s = U.el('select', {
-            style: { minWidth: '150px' },
+            style: { minWidth: '150px' }, disabled: !admin,
+            title: admin ? null : '一般ユーザーは自分の入力のみ登録できます',
             onchange: function () { switchTo(this.value); }
           });
-          State.members().forEach(function (m) { s.appendChild(U.el('option', { value: m, text: m, selected: m === member })); });
-          if (!State.members().length) s.appendChild(U.el('option', { value: '', text: '（メンバー未登録）' }));
+          var list = admin ? State.members() : (member ? [member] : []);
+          list.forEach(function (m) { s.appendChild(U.el('option', { value: m, text: m, selected: m === member })); });
+          if (!list.length) s.appendChild(U.el('option', { value: '', text: '（メンバー未登録）' }));
           s.value = member;
           return s;
         })()
@@ -746,6 +764,8 @@
       status: '予定', hours: State.settings().workHoursPerDay, allDay: true
     }, base || {});
     draft.kind = kindOf(draft);
+    // 一般ユーザーは他の担当者の記録を閲覧のみ
+    var editable = State.canEdit(draft.member);
 
     var grid = U.el('div', { class: 'form-grid' });
     function field(label, node, span, hint) {
@@ -793,7 +813,9 @@
     ]);
     kindSel.value = draft.kind;
     field('種別', kindSel);
-    field('担当者', select(State.members(), 'member'));
+    var memberSel = select(State.isAdmin() ? State.members() : [draft.member], 'member');
+    memberSel.disabled = !State.isAdmin();
+    field('担当者', memberSel);
     field('PJCD', codeField('projectCodes', 'projectCode'));
     field('作業コード', codeField('workCodes', 'workCode'));
     field('工程（作業区分）', select(State.masters.planCategories || [], 'category', 'value'));
@@ -833,6 +855,15 @@
     var note = U.el('textarea', { text: draft.note || '' });
     note.addEventListener('input', function () { draft.note = this.value || null; });
     field('備考', note, true);
+
+    if (!editable) {
+      U.openDrawer('記録を表示', grid, [
+        U.el('span', { class: 'muted', text: '他の担当者の記録は変更できません' }),
+        U.el('div', { class: 'spacer' }),
+        U.el('button', { class: 'btn', text: '閉じる', onclick: U.closeDrawer })
+      ]);
+      return;
+    }
 
     var foot = [];
     if (base && base.id) {

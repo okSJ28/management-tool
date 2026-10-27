@@ -126,7 +126,7 @@
               background: iso === todayIso ? '#f5f9ff' : (U.isWeekend(d) ? '#fffafa' : null)
             },
             onclick: function (e) {
-              if (e.target !== td) return;
+              if (e.target !== td || !State.canEdit(m)) return;
               Views.planInput._editor({ member: m, date: iso, endDate: iso }, function () { App.render(); });
             }
           });
