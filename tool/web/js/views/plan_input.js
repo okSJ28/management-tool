@@ -8,7 +8,7 @@
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var P = { date: null, member: null, rows: null, removed: null, key: null, dirty: false, teamOpen: false };
+  var P = { date: null, member: null, rows: null, removed: null, key: null, dirty: false, teamOpen: false, prevOpen: true };
 
   var PHASE = {
     plan: {
@@ -610,14 +610,12 @@
       function mark(ok, text) {
         return U.el('span', { class: 'chip', style: chipStyle(ok), text: text || (ok ? '✓ 済' : '未') });
       }
-      // 他の担当者の入力に切り替えられるのは管理者のみ
-      var open = State.isAdmin();
       tb.appendChild(U.el('tr', {
-        style: { cursor: open ? 'pointer' : null }, title: open ? m + ' さんの入力を表示' : null,
-        onclick: open ? function () {
+        style: { cursor: 'pointer' }, title: m + ' さんの入力を表示',
+        onclick: function () {
           if (!leaveOk()) return;
           P.member = m; P.key = null; P.dirty = false; App.render({ top: true });
-        } : null
+        }
       }, [
         U.el('td', { class: 'strong' }, [
           U.el('span', {
@@ -633,6 +631,57 @@
         U.el('td', { class: 'num', text: U.fmtH(U.sum(pl, function (p) { return p.hours; })) }),
         U.el('td', { class: 'num', text: U.fmtH(U.sum(rs, function (p) { return p.actualHours; })) }),
         U.el('td', { class: 'num', text: avg === null ? '' : U.fmtNum(avg, 0) + '%' })
+      ]));
+    });
+    tbl.appendChild(tb);
+    card.appendChild(U.el('div', { class: 'table-wrap' }, [tbl]));
+    return card;
+  }
+
+  /* 対象日より前で、直近 7 日以内に入力がある日（土日・休日を飛ばす）。無ければ null */
+  function previousEntryDay(date, member) {
+    var probe = U.parseDate(date);
+    for (var i = 0; i < 7; i++) {
+      probe = U.addDays(probe, -1);
+      var iso = U.iso(probe);
+      if (State.plansOnDate(iso, member).some(function (p) { return kindOf(p) !== 'assignment'; })) return iso;
+    }
+    return null;
+  }
+
+  /* 前回入力日の内容（参照のみ） */
+  function previousDay(date, member) {
+    var prev = previousEntryDay(date, member);
+    var label = prev ? U.fmtDateFull(prev) + '（' + WD[U.parseDate(prev).getDay()] + '）' : '直近7日間に入力なし';
+    var card = U.el('div', { class: 'card mt16' }, [
+      U.el('div', {
+        class: 'card-head', style: { cursor: prev ? 'pointer' : null },
+        onclick: prev ? function () { P.prevOpen = !P.prevOpen; App.render(); } : null
+      }, [
+        U.el('h3', { text: '📋 前回の入力（' + label + '）' }),
+        U.el('span', { class: 'muted', text: '参照のみ' }),
+        prev ? U.el('div', { class: 'tools' }, [U.el('button', { class: 'btn btn-sm', text: P.prevOpen ? '▲ 閉じる' : '▼ 開く' })]) : null
+      ])
+    ]);
+    if (!prev || !P.prevOpen) return card;
+
+    var rows = buildRows(prev, member);
+    var tbl = U.el('table', { class: 'grid-table' });
+    tbl.appendChild(U.el('thead', {}, [
+      U.el('tr', {}, ['工程', '案件名', '作業内容', '予定(h)', '実績(h)', '進捗', '状況'].map(function (h, i) {
+        return U.el('th', { class: i >= 3 && i <= 5 ? 'right' : '', text: h });
+      }))
+    ]));
+    var tb = U.el('tbody');
+    rows.forEach(function (r) {
+      tb.appendChild(U.el('tr', {}, [
+        U.el('td', { class: 'strong', style: { color: r.f.category ? State.planColor(r.f.category) : null }, text: r.f.category || '—' }),
+        U.el('td', { text: r.f.project || '' }),
+        U.el('td', { text: r.f.title || '' }),
+        U.el('td', { class: 'num', text: r.plan ? U.fmtH(r.hours) : '予定外' }),
+        U.el('td', { class: 'num', text: r.result ? U.fmtH(effActual(r)) : '' }),
+        U.el('td', { class: 'num', text: r.progress === null ? '' : U.fmtNum(r.progress, 0) + '%' }),
+        U.el('td', { text: r.result ? r.status : '' })
       ]));
     });
     tbl.appendChild(tb);
@@ -722,7 +771,9 @@
       }
 
       root.appendChild(sheet());
-      root.appendChild(teamStatus(date));
+      root.appendChild(previousDay(date, member));
+      // チームの入力状況は管理者のみ
+      if (State.isAdmin()) root.appendChild(teamStatus(date));
     }
   };
 
