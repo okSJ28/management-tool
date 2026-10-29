@@ -301,14 +301,6 @@
   function bindGlobal() {
     if (bound) return;
     bound = true;
-    document.getElementById('btnQuickAdd').addEventListener('click', function () {
-      if (App.appKey === 'plan') {
-        var iso = U.iso(U.today());
-        Views.planInput._editor({ member: State.me() || null, date: iso, endDate: iso }, function () { App.render(); });
-      } else {
-        Form.openEditor({ type: 'mfg' }, function () { App.render(); });
-      }
-    });
     document.getElementById('userBadge').addEventListener('click', openAccount);
     document.getElementById('btnCollapse').addEventListener('click', function () {
       document.getElementById('app').classList.toggle('collapsed');
@@ -324,9 +316,6 @@
     document.addEventListener('keydown', function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !document.getElementById('searchBox').hidden) {
         e.preventDefault(); search.focus(); search.select();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
-        e.preventDefault(); document.getElementById('btnQuickAdd').click();
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         var cur = Views[App.current];
