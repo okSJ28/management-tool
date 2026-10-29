@@ -75,6 +75,7 @@
       var view = Views[this.current] || Views.dashboard;
       document.getElementById('viewTitle').textContent = view.title;
       document.getElementById('viewDesc').textContent = view.desc || '';
+      syncSearch(view);
       // 再描画で中身が一度空になりスクロール位置が先頭に戻るため、描画前の位置を復元する
       var el = document.getElementById('view');
       var toTop = !!(opts && opts.top);
@@ -269,6 +270,17 @@
     }, 20000);
   }
 
+  /* 横断検索は検索に対応した画面（searchable）で管理者にだけ出す。一般ユーザーは使わない */
+  function syncSearch(view) {
+    var show = !!view.searchable && State.isAdmin();
+    document.getElementById('searchBox').hidden = !show;
+    // 見えない検索条件で絞り込まれたままにならないよう解除する
+    if (!show && State.search) {
+      State.search = '';
+      document.getElementById('globalSearch').value = '';
+    }
+  }
+
   var bound = false;
   function bindGlobal() {
     if (bound) return;
@@ -294,7 +306,9 @@
       App.render();
     }, 280));
     document.addEventListener('keydown', function (e) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); search.focus(); search.select(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !document.getElementById('searchBox').hidden) {
+        e.preventDefault(); search.focus(); search.select();
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault(); document.getElementById('btnQuickAdd').click();
       }

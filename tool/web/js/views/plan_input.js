@@ -753,13 +753,6 @@
       bar.appendChild(U.el('div', { class: 'fld', style: { marginTop: '12px' } }, [summary(date, member)]));
       bar.appendChild(U.el('div', { class: 'spacer' }));
       bar.appendChild(U.el('button', {
-        class: 'btn btn-sm', text: '📌 取組み予定を登録',
-        title: '一定期間取り組む作業を登録します（日次入力から選べるようになります）',
-        onclick: function () {
-          Views.planAssign._editor({ member: member, date: date }, function () { App.render(); });
-        }
-      }));
-      bar.appendChild(U.el('button', {
         class: 'btn btn-sm', text: '⧉ 前営業日の予定を複製',
         onclick: function () { copyPreviousDay(); }
       }));
@@ -881,14 +874,8 @@
     field('案件名', projectInput, true);
 
     var linkSel = U.el('select', { style: { width: '100%' } });
-    linkSel.appendChild(U.el('option', { value: '', text: '（紐付けなし）' }));
-    State.tasks.slice().sort(function (a, b) { return (b.startDate || '') < (a.startDate || '') ? -1 : 1; })
-      .slice(0, 400).forEach(function (t) {
-        linkSel.appendChild(U.el('option', {
-          value: t.id, selected: draft.taskId === t.id,
-          text: (t.programId || '(ID未設定)') + ' / ' + (t.assignee1 || '') + ' / ' + (t.project || '')
-        }));
-      });
+    Views.planAssign._fillTaskOptions(linkSel, draft.member, draft.taskId);
+    memberSel.addEventListener('change', function () { Views.planAssign._fillTaskOptions(linkSel, draft.member, draft.taskId); });
     linkSel.addEventListener('change', function () {
       draft.taskId = this.value || null;
       var t = State.tasks.filter(function (x) { return x.id === draft.taskId; })[0];

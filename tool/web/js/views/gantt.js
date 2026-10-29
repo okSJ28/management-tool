@@ -150,6 +150,7 @@
     title: 'ガントチャート',
     desc: '担当者・案件ごとの作業期間を俯瞰',
     icon: '📆',
+    searchable: true,
     render: function (root) {
       var bar = U.el('div', { class: 'filterbar' });
 

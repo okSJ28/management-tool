@@ -19,6 +19,24 @@
     return 'dl_assign_project';
   }
 
+  /* 「開発タスクと紐付け」の選択肢（担当者のタスクのみ。紐付け済みのタスクは担当外でも残す） */
+  function fillTaskOptions(sel, member, selectedId) {
+    U.clear(sel);
+    sel.appendChild(U.el('option', { value: '', text: '（紐付けなし）' }));
+    var list = member ? State.tasksOfMember(member) : [];
+    if (selectedId && !list.some(function (t) { return t.id === selectedId; })) {
+      list = list.concat(State.tasks.filter(function (t) { return t.id === selectedId; }));
+    }
+    list.slice().sort(function (a, b) { return (b.startDate || '') < (a.startDate || '') ? -1 : 1; })
+      .slice(0, 400).forEach(function (t) {
+        sel.appendChild(U.el('option', {
+          value: t.id, selected: selectedId === t.id,
+          text: (t.programId || '(ID未設定)') + ' / ' + (t.assignee1 || '') + ' / ' + (t.project || '')
+        }));
+      });
+    sel.value = selectedId || '';
+  }
+
   /* ------------------------------------------------ 登録・編集 */
   function editor(base, onSaved) {
     var draft = Object.assign({
@@ -78,14 +96,9 @@
     field('作業内容', titleInput, true);
 
     var linkSel = U.el('select', { style: { width: '100%' } });
-    linkSel.appendChild(U.el('option', { value: '', text: '（紐付けなし）' }));
-    State.tasks.slice().sort(function (a, b) { return (b.startDate || '') < (a.startDate || '') ? -1 : 1; })
-      .slice(0, 400).forEach(function (t) {
-        linkSel.appendChild(U.el('option', {
-          value: t.id, selected: draft.taskId === t.id,
-          text: (t.programId || '(ID未設定)') + ' / ' + (t.assignee1 || '') + ' / ' + (t.project || '')
-        }));
-      });
+    fillTaskOptions(linkSel, draft.member, draft.taskId);
+    // 担当者を切り替えたら（管理者のみ）その人のタスクに入れ替える
+    memberSel.addEventListener('change', function () { fillTaskOptions(linkSel, draft.member, draft.taskId); });
     linkSel.addEventListener('change', function () {
       draft.taskId = this.value || null;
       var t = State.tasks.filter(function (x) { return x.id === draft.taskId; })[0];
@@ -97,7 +110,7 @@
       if (!draft.date && t.startDate) { draft.date = t.startDate; }
       if (!draft.endDate && t.endDate) { draft.endDate = t.endDate; }
     });
-    field('開発タスクと紐付け', linkSel, true, '開発プログラム管理のタスクと突き合わせできます');
+    field('開発タスクと紐付け', linkSel, true, '担当者の開発タスクから選べます（開発プログラム管理のタスクと突き合わせできます）');
 
     var note = U.el('textarea', { text: draft.note || '' });
     note.addEventListener('input', function () { draft.note = this.value || null; });
@@ -172,6 +185,7 @@
     desc: '一定期間で取り組む作業を登録し、日次の実績を紐づけて進捗を追跡します',
     icon: '📌',
     app: 'plan',
+    searchable: true,
     render: function (root) {
       if (!A.start) A.start = U.addDays(U.today(), -7);
       var todayIso = U.iso(U.today());
@@ -382,4 +396,5 @@
   };
 
   Views.planAssign._editor = editor;
+  Views.planAssign._fillTaskOptions = fillTaskOptions;
 })(window);

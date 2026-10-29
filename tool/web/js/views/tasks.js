@@ -418,6 +418,7 @@
     title: '一覧・入力',
     desc: 'ダブルクリックで直接編集／行の⋯で詳細',
     icon: '📋',
+    searchable: true,
     onEnter: function (params) {
       loadPrefs();
       if (params) {

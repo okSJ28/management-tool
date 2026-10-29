@@ -37,6 +37,7 @@
     desc: '全員の業務予定を日付マトリクスで俯瞰',
     icon: '🗓',
     app: 'plan',
+    searchable: true,
     render: function (root) {
       if (!B.start) B.start = U.addDays(U.today(), -2);
       var days = [];
