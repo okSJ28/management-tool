@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core import auth
 from core.storage import STORE, ConflictError
 
 from ..http import Request, Response, error, json_response
@@ -27,6 +28,9 @@ def bulk(req: Request) -> Response:
     action = payload.get("action")
     ids = payload.get("ids") or []
     if action == "delete":
+        # 一括削除は誤操作時の影響が大きいため管理者のみ
+        if not auth.is_admin(req.account):
+            return error("forbidden", 403)
         return json_response({"removed": STORE.delete_tasks(ids)})
     if action == "patch":
         patch = payload.get("patch") or {}

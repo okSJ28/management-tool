@@ -29,6 +29,15 @@
     return !!v && (!v.adminOnly || State.isAdmin());
   }
 
+  /* 未保存の変更がある画面（view.busy）から移動してよいか。破棄する場合は view.discard で編集を捨てる */
+  function leaveOk() {
+    var view = Views[App.current];
+    if (!view || !view.busy || !view.busy()) return true;
+    if (!window.confirm('保存していない変更があります。破棄して移動しますか？')) return false;
+    if (view.discard) view.discard();
+    return true;
+  }
+
   var App = {
     appKey: 'dev',
     current: 'dashboard',
@@ -43,6 +52,7 @@
 
     switchApp: function (key) {
       if (this.appKey === key) return;
+      if (!leaveOk()) return;
       this.appKey = key;
       try { localStorage.setItem('dpm.app', key); } catch (e) { /* ignore */ }
       this.go(this.appDef().groups[0].items[0]);
@@ -53,6 +63,13 @@
       if (!canView(key)) {
         U.toast('この画面は管理者のみ利用できます', 'warn');
         if (location.hash === '#' + key) location.hash = this.current;
+        return;
+      }
+      var view = Views[this.current];
+      if (key === this.current && view && view.busy && view.busy()) return;
+      if (key !== this.current && !leaveOk()) {
+        // 戻る・進むなどで URL だけ変わった場合は元に戻す
+        if (location.hash !== '#' + this.current) location.hash = this.current;
         return;
       }
       var owner = APPS.filter(function (a) {
@@ -322,7 +339,17 @@
       var key = location.hash.replace('#', '');
       if (key && Views[key] && key !== App.current) App.go(key);
     });
-    window.addEventListener('resize', U.debounce(function () { App.render(); }, 350));
+    window.addEventListener('resize', U.debounce(function () {
+      // 入力途中の画面は作り直すと編集内容やフォーカスが失われるため見送る
+      var view = Views[App.current];
+      if (view && view.busy && view.busy()) return;
+      App.render();
+    }, 350));
+    /* 未保存の変更がある状態で画面を閉じる・再読込するときの警告 */
+    window.addEventListener('beforeunload', function (e) {
+      var view = Views[App.current];
+      if (view && view.busy && view.busy()) { e.preventDefault(); e.returnValue = ''; }
+    });
   }
 
   function boot() {

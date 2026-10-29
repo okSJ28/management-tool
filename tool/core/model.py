@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import math
 import re
 import unicodedata
 from pathlib import Path
@@ -58,19 +59,47 @@ def norm_member(value: Any) -> str:
 
 
 def to_num(value: Any) -> float | None:
+    """Parse a number. NaN / Infinity are rejected (None) because they break JSON output."""
     if value is None or value == "":
         return None
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = unicodedata.normalize("NFKC", str(value)).replace(",", "").replace("%", "").strip()
-    if not text:
-        return None
     try:
-        return float(text)
-    except ValueError:
+        if isinstance(value, (int, float)):
+            number = float(value)
+        else:
+            text = unicodedata.normalize("NFKC", str(value)).replace(",", "").replace("%", "").strip()
+            if not text:
+                return None
+            number = float(text)
+    except (ValueError, OverflowError):
         return None
+    return number if math.isfinite(number) else None
+
+
+# 計算パラメータの許容範囲（下限, 上限）。None は制限なし
+_SETTING_RANGES = {
+    "baseCoef": (0, None), "newCoef": (0, None), "modCoef": (0, None),
+    "monthHours": (1, None), "workHoursPerDay": (1, 24), "fiscalStartMonth": (1, 12),
+    "targetProdMonth": (0, None), "targetQuality": (0, None),
+}
+
+
+def validate_settings(settings: dict) -> dict:
+    """計算パラメータを数値に揃える。数値でない・範囲外の値があれば ValueError。"""
+    out = dict(settings)
+    for key, (low, high) in _SETTING_RANGES.items():
+        if key not in out:
+            continue
+        value = to_num(out[key])
+        if value is None or value < low or (high is not None and value > high):
+            raise ValueError(key)
+        if key == "fiscalStartMonth":
+            if value != int(value):
+                raise ValueError(key)
+            value = int(value)
+        out[key] = value
+    return out
 
 
 def to_date(value: Any) -> str | None:

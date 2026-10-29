@@ -167,6 +167,9 @@
         if (!draft.date) { U.toast('開始日を入力してください', 'warn'); return; }
         if (!draft.endDate) draft.endDate = draft.date;
         if (draft.endDate < draft.date) { U.toast('終了日は開始日以降にしてください', 'warn'); return; }
+        if (draft.hours !== null && draft.hours !== undefined && !(draft.hours >= 0)) {
+          U.toast('予定工数は 0 以上の数値で入力してください', 'warn'); return;
+        }
         U.loading(true);
         (base && base.id ? API.updatePlan(base.id, draft) : API.addPlan(draft))
           .then(function () { U.toast('保存しました', 'ok'); U.closeDrawer(); return State.reloadPlans(); })

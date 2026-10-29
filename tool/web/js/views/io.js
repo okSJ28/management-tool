@@ -18,7 +18,11 @@
   function modeSelector() {
     var box = U.el('div', { class: 'row-flex', style: { marginBottom: '10px' } }, [U.el('span', { class: 'muted strong', text: '取込方法:' })]);
     var seg = U.el('div', { class: 'seg' });
-    [['upsert', '更新＋追加（推奨）'], ['append', 'すべて追加'], ['replace', '全件置換']].forEach(function (o) {
+    // 全件置換は既存タスクをすべて消すため管理者のみ
+    if (mode === 'replace' && !State.isAdmin()) mode = 'upsert';
+    var modes = [['upsert', '更新＋追加（推奨）'], ['append', 'すべて追加']];
+    if (State.isAdmin()) modes.push(['replace', '全件置換']);
+    modes.forEach(function (o) {
       seg.appendChild(U.el('button', { class: mode === o[0] ? 'on' : '', text: o[1], onclick: function () { mode = o[0]; App.render(); } }));
     });
     box.appendChild(seg);

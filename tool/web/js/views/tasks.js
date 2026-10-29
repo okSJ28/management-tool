@@ -362,7 +362,8 @@
     }));
     bar.appendChild(U.el('div', { class: 'spacer' }));
     bar.appendChild(U.el('button', { class: 'btn btn-sm', text: '選択解除', onclick: function () { selected.clear(); rerender(true); } }));
-    bar.appendChild(U.el('button', {
+    // 一括削除は誤操作時の影響が大きいため管理者のみ
+    if (State.isAdmin()) bar.appendChild(U.el('button', {
       class: 'btn btn-sm btn-danger', text: '削除', onclick: function () {
         U.confirmDialog('一括削除', ids.length + ' 件を削除します。元に戻せません。', '削除する').then(function (ok) {
           if (!ok) return;

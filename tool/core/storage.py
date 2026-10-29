@@ -299,9 +299,12 @@ class Store:
     def update_masters(self, patch: dict) -> dict:
         with _LOCK:
             data = self.load()
+            if "settings" in patch:
+                # 不正な値で再計算が失敗し、設定が中途半端に残らないよう先に検証する
+                patch = {**patch, "settings": model.validate_settings(patch["settings"] or {})}
             for key, value in patch.items():
                 if key == "settings":
-                    data["masters"]["settings"].update(value or {})
+                    data["masters"]["settings"].update(value)
                 else:
                     if key == "members":
                         self._track_excluded(data["masters"], value or [])

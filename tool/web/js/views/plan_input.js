@@ -110,6 +110,10 @@
   /* 実績h が空なら予定h をそのまま実績とみなす */
   function effActual(r) { return r.actualHours !== null ? r.actualHours : (r.hasPlan ? r.hours : null); }
 
+  /* 1日の工数として妥当か（空欄は可）。サーバー側でも同じ範囲で検証する */
+  var DAY_HOURS = 24;
+  function hoursOk(v) { return v === null || (v >= 0 && v <= DAY_HOURS); }
+
   function isBlank(r) {
     return !r.f.category && !r.f.title && !r.f.project && !r.f.assignmentId &&
       !r.f.projectCode && !r.f.workCode && r.hours === null && !hasResult(r);
@@ -402,7 +406,7 @@
     }
     var actual;
     if (r.hasPlan) {
-      var planH = numInput(r.hours, { step: '0.5' });
+      var planH = numInput(r.hours, { step: '0.5', max: String(DAY_HOURS) });
       planH.addEventListener('input', function () {
         r.hours = U.num(this.value);
         if (actual) actual.placeholder = r.hours === null ? '' : String(r.hours);
@@ -415,7 +419,7 @@
 
     /* 🌙 実績(h)：空欄なら予定h を薄字で表示し、保存時はその値を採用する */
     actual = numInput(r.actualHours, {
-      step: '0.5', class: 'num pi-actual',
+      step: '0.5', max: String(DAY_HOURS), class: 'num pi-actual',
       placeholder: r.hasPlan && r.hours !== null ? String(r.hours) : '',
       title: '空欄のまま進捗率を入れると、予定(h) と同じ時間で登録します'
     });
@@ -435,7 +439,8 @@
     }
     function setProgress(v, fromInput) {
       r.progress = v === null ? null : Math.max(0, Math.min(100, v));
-      if (!fromInput) prog.value = r.progress === null ? '' : r.progress;
+      // 範囲外の値（150 など）は補正後の値を欄にも表示する
+      if (!fromInput || r.progress !== v) prog.value = r.progress === null ? '' : r.progress;
       // 100% にしたら完了、完了から戻したら実施中
       if (r.progress === 100 && r.status === '実施中') { r.status = '完了'; st.value = '完了'; }
       else if (r.progress !== null && r.progress < 100 && r.status === '完了') { r.status = '実施中'; st.value = '実施中'; }
@@ -488,8 +493,14 @@
   }
 
   /* ------------------------------------------------ 保存 */
+  var saving = false;
   function save() {
+    // Ctrl+S の連打などで同じ内容が二重に登録されないよう、保存中は受け付けない
+    if (saving) return;
     var rows = P.rows.filter(function (r) { return r.dirty && !isBlank(r); });
+    if (rows.some(function (r) { return !hoursOk(r.hours) || !hoursOk(r.actualHours); })) {
+      U.toast('予定(h)・実績(h) は 0〜' + DAY_HOURS + ' の範囲で入力してください', 'warn'); return;
+    }
     if (rows.some(function (r) { return !r.f.category; })) {
       U.toast('工程（作業区分）を選択してください', 'warn'); return;
     }
@@ -536,6 +547,7 @@
     });
     if (!payload.length && !toDelete.length) { U.toast('変更はありません', 'info'); return; }
 
+    saving = true;
     U.loading(true);
     API.savePlans(payload, toDelete)
       .then(function () { return State.reloadPlans(); })
@@ -549,7 +561,7 @@
         App.render();
       })
       .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
-      .finally(function () { U.loading(false); });
+      .finally(function () { saving = false; U.loading(false); });
   }
 
   /* ------------------------------------------------ 状況表示 */
@@ -710,6 +722,8 @@
     app: 'plan',
     /* 未保存の編集中は自動同期による再描画を止める */
     busy: function () { return !!P.dirty; },
+    /* 画面移動で未保存の変更を破棄する（次回表示時に保存済みの内容から組み直す） */
+    discard: function () { P.dirty = false; P.key = null; },
     onSave: function () { save(); },
     render: function (root) {
       var member = me();
@@ -792,11 +806,6 @@
     U.toast(U.fmtDate(U.iso(probe)) + ' の予定 ' + src.length + ' 件を複製しました（未保存）', 'ok');
     App.render();
   }
-
-  /* 編集中に画面を閉じる・再読込するときの警告 */
-  global.addEventListener('beforeunload', function (e) {
-    if (P.dirty && App.current === 'planInput') { e.preventDefault(); e.returnValue = ''; }
-  });
 
   /* ------------------------------------------------ 単票エディタ（他ビューから利用） */
   function planEditor(base, onSaved) {
@@ -925,6 +934,12 @@
       class: 'btn btn-primary', text: base && base.id ? '保存' : '登録', onclick: function () {
         if (!draft.member) { U.toast('担当者を選択してください', 'warn'); return; }
         if (!draft.date) { U.toast('対象日を入力してください', 'warn'); return; }
+        if (!hoursOk(U.num(draft.hours)) || !hoursOk(U.num(draft.actualHours))) {
+          U.toast('予定工数・実績工数は 0〜' + DAY_HOURS + ' の範囲で入力してください', 'warn'); return;
+        }
+        if (draft.progress !== null && draft.progress !== undefined && (draft.progress < 0 || draft.progress > 100)) {
+          U.toast('進捗率は 0〜100 の範囲で入力してください', 'warn'); return;
+        }
         draft.endDate = draft.date;
         U.loading(true);
         (base && base.id ? API.updatePlan(base.id, draft) : API.addPlan(draft))

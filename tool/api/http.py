@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import urllib.parse
 from dataclasses import dataclass, field
 from http.cookies import CookieError, SimpleCookie
@@ -66,8 +67,24 @@ class Response:
     headers: dict[str, str] = field(default_factory=dict)
 
 
+def _finite(value: Any) -> Any:
+    """Replace NaN / Infinity (invalid in JSON) with None, recursively."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(v) for v in value]
+    return value
+
+
 def json_response(payload: Any, status: int = 200) -> Response:
-    return Response(status, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    try:
+        body = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    except ValueError:
+        # 古いデータに NaN などが残っていても、ブラウザが解析できる JSON を返す
+        body = json.dumps(_finite(payload), ensure_ascii=False)
+    return Response(status, body.encode("utf-8"))
 
 
 def error(message: str, status: int = 400) -> Response:

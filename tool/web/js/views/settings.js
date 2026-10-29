@@ -27,6 +27,36 @@
     { key: 'targetQuality', label: '目標 品質(指摘/KS 上限)' }
   ];
 
+  /* 計算パラメータの入力チェック（サーバー側 model.validate_settings と同じ範囲） */
+  var SETTING_RANGES = {
+    monthHours: [1, null], workHoursPerDay: [1, 24], fiscalStartMonth: [1, 12]
+  };
+  function settingOk(key, v) {
+    if (v === null || v === undefined || !isFinite(v)) return false;
+    var range = SETTING_RANGES[key] || [0, null];
+    if (v < range[0] || (range[1] !== null && v > range[1])) return false;
+    return key !== 'fiscalStartMonth' || v === Math.floor(v);
+  }
+
+  /* 各カードの未保存の変更を追跡する。カードごとに保存するため、保存後の再描画で
+     他のカードの編集中の内容を消さないよう、編集中のカードが残っていれば再描画を見送る */
+  var trackers = [];
+  function track(getter) {
+    var t = {
+      base: JSON.stringify(getter()),
+      dirty: function () { return JSON.stringify(getter()) !== t.base; },
+      reset: function () { t.base = JSON.stringify(getter()); }
+    };
+    trackers.push(t);
+    return t;
+  }
+  function anyDirty() { return trackers.some(function (t) { return t.dirty(); }); }
+  /* 保存したカードを保存済みにし、他に編集中のカードが無ければ最新の内容で描き直す */
+  function saved(t) {
+    if (t) t.reset();
+    if (!anyDirty()) App.render();
+  }
+
   function listEditor(key, label) {
     var values = (State.masters[key] || []).map(function (v) { return typeof v === 'object' ? v.value : v; });
     var box = U.el('div', { class: 'card' }, [
@@ -52,6 +82,7 @@
     body.appendChild(listBox);
 
     var input = U.el('input', { type: 'text', placeholder: '追加する値を入力してEnter', style: { flex: 1 } });
+    var t = track(function () { return values; });
     input.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') return;
       e.preventDefault();
@@ -74,7 +105,7 @@
           patch[key] = values.slice();
           U.loading(true);
           API.masters(patch).then(function (r) {
-            State.masters = r.masters; U.toast(label + ' を保存しました', 'ok');
+            State.masters = r.masters; U.toast(label + ' を保存しました', 'ok'); t.reset();
           }).catch(function (e) { U.toast(e.message, 'err'); })
             .finally(function () { U.loading(false); });
         }
@@ -107,6 +138,7 @@
     }
     draw();
     body.appendChild(list);
+    var t = track(function () { return items; });
     body.appendChild(U.el('div', { class: 'row-flex mt8' }, [
       U.el('button', { class: 'btn btn-sm', text: '＋ 行追加', onclick: function () { items.push({ value: '', color: '#64748b' }); draw(); } }),
       U.el('button', {
@@ -115,7 +147,7 @@
           patch[key] = items.filter(function (s) { return s.value; });
           U.loading(true);
           API.masters(patch).then(function (r) {
-            State.masters = r.masters; U.toast(label + ' を保存しました', 'ok'); App.render();
+            State.masters = r.masters; U.toast(label + ' を保存しました', 'ok'); saved(t);
           }).catch(function (e) { U.toast(e.message, 'err'); })
             .finally(function () { U.loading(false); });
         }
@@ -167,6 +199,7 @@
       style: { minHeight: '68px', marginTop: '8px' }
     });
     body.appendChild(bulk);
+    var t = track(function () { return [items, bulk.value]; });
 
     body.appendChild(U.el('div', { class: 'row-flex mt8' }, [
       U.el('button', { class: 'btn btn-sm', text: '＋ 行追加', onclick: function () { items.push({ code: '', name: '' }); draw(); } }),
@@ -199,7 +232,7 @@
           patch[key] = cleaned;
           U.loading(true);
           API.masters(patch).then(function (r) {
-            State.masters = r.masters; U.toast(label + ' を保存しました', 'ok'); App.render();
+            State.masters = r.masters; U.toast(label + ' を保存しました', 'ok'); saved(t);
           }).catch(function (e) { U.toast(e.message, 'err'); })
             .finally(function () { U.loading(false); });
         }
@@ -263,6 +296,7 @@
     draw();
     body.appendChild(list);
     var newName = U.el('input', { type: 'text', placeholder: '新しい分類名', style: { width: '180px' } });
+    var t = track(function () { return groups; });
     body.appendChild(U.el('div', { class: 'row-flex mt8' }, [
       newName,
       U.el('button', {
@@ -275,7 +309,7 @@
         class: 'btn btn-sm btn-primary', text: '保存', onclick: function () {
           U.loading(true);
           API.masters({ resourceGroups: groups }).then(function (r) {
-            State.masters = r.masters; U.toast('リソース分類を保存しました', 'ok'); App.render();
+            State.masters = r.masters; U.toast('リソース分類を保存しました', 'ok'); saved(t);
           }).catch(function (e) { U.toast(e.message, 'err'); })
             .finally(function () { U.loading(false); });
         }
@@ -353,7 +387,7 @@
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('h3', { text: '👥 ユーザー管理' }), sub,
       U.el('div', { class: 'spacer', style: { flex: 1 } }),
-      U.el('button', { class: 'btn btn-sm btn-primary', text: '＋ ユーザー追加', onclick: function () { userEditor(null, function () { App.render(); }); } })
+      U.el('button', { class: 'btn btn-sm btn-primary', text: '＋ ユーザー追加', onclick: function () { userEditor(null, refresh); } })
     ]));
     var body = U.el('div', { class: 'card-body' });
     card.appendChild(body);
@@ -361,7 +395,7 @@
     function rowActions(u) {
       var self = State.account && State.account.id === u.id;
       return U.el('td', { style: { whiteSpace: 'nowrap' } }, [
-        U.el('button', { class: 'btn btn-sm', text: '編集', onclick: function () { userEditor(u, function () { App.render(); }); } }),
+        U.el('button', { class: 'btn btn-sm', text: '編集', onclick: function () { userEditor(u, refresh); } }),
         ' ',
         U.el('button', {
           class: 'btn btn-sm', text: 'PW初期化', title: 'パスワードをIDと同じ値に戻します', onclick: function () {
@@ -411,6 +445,9 @@
       body.appendChild(U.el('p', { class: 'muted mt8', style: { fontSize: '11.5px' }, text: '新規ユーザーと「PW初期化」後のパスワードはIDと同じです。ログイン後、右上のアカウントメニューから各自で変更してもらってください。' }));
     }
 
+    /* 他のカードが編集中ならユーザー一覧だけ取り直す */
+    function refresh() { if (anyDirty()) load(); else App.render(); }
+
     function load() {
       API.users().then(function (r) { draw(r.users || []); })
         .catch(function (e) {
@@ -427,7 +464,11 @@
     desc: 'ユーザー・マスタ・計算式パラメータの管理（管理者のみ）',
     icon: '⚙',
     adminOnly: true,
+    /* 編集中のカードがあれば自動同期・画面移動で内容を消さない */
+    busy: function () { return anyDirty(); },
+    discard: function () { trackers = []; },
     render: function (root) {
+      trackers = [];
       root.appendChild(userManager());
 
       /* --- 計算パラメータ --- */
@@ -446,15 +487,21 @@
           f.hint ? U.el('div', { class: 'hint', text: f.hint }) : null
         ]));
       });
+      var settingsTracker = track(function () { return settings; });
       var body = U.el('div', { class: 'card-body' }, [grid,
         U.el('div', { class: 'row-flex mt12' }, [
           U.el('button', {
             class: 'btn btn-primary', text: '保存して再計算', onclick: function () {
+              var bad = SETTING_FIELDS.filter(function (f) { return !settingOk(f.key, settings[f.key]); });
+              if (bad.length) {
+                U.toast('入力内容を確認してください: ' + bad.map(function (f) { return f.label; }).join('、'), 'warn', 5000);
+                return;
+              }
               U.loading(true);
               API.masters({ settings: settings }).then(function (r) {
                 State.masters = r.masters; U.toast('保存しました', 'ok');
                 return State.reload();
-              }).then(function () { App.render(); })
+              }).then(function () { saved(settingsTracker); })
                 .catch(function (e) { U.toast(e.message, 'err'); })
                 .finally(function () { U.loading(false); });
             }
@@ -484,13 +531,14 @@
       }
       drawStatuses();
       stBody.appendChild(stList);
+      var stTracker = track(function () { return statuses; });
       stBody.appendChild(U.el('div', { class: 'row-flex mt8' }, [
         U.el('button', { class: 'btn btn-sm', text: '＋ 行追加', onclick: function () { statuses.push({ value: '', color: '#64748b' }); drawStatuses(); } }),
         U.el('button', {
           class: 'btn btn-sm btn-primary', text: '保存', onclick: function () {
             U.loading(true);
             API.masters({ statuses: statuses.filter(function (s) { return s.value; }) }).then(function (r) {
-              State.masters = r.masters; U.toast('保存しました', 'ok'); App.render();
+              State.masters = r.masters; U.toast('保存しました', 'ok'); saved(stTracker);
             }).catch(function (e) { U.toast(e.message, 'err'); })
               .finally(function () { U.loading(false); });
           }
@@ -528,7 +576,7 @@
                   U.loading(true);
                   API.bulk('delete', State.tasks.map(function (t) { return t.id; })).then(function () {
                     U.toast('削除しました', 'ok'); return State.reload();
-                  }).then(function () { App.render(); })
+                  }).then(function () { saved(null); })
                     .catch(function (e) { U.toast(e.message, 'err'); })
                     .finally(function () { U.loading(false); });
                 });

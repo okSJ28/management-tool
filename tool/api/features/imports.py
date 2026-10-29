@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import excel_io
+from core import auth, excel_io
 from core.config import CONFIG
 from core.storage import STORE
 
@@ -26,9 +26,16 @@ def _safe_child(folder: Path, name: str) -> Path | None:
     return candidate
 
 
+def _replace_denied(req: Request, payload: dict) -> bool:
+    """全件置換（既存タスクをすべて消して入れ替える）は管理者のみ。"""
+    return payload.get("mode") == "replace" and not auth.is_admin(req.account)
+
+
 @router.post("/api/import/excel")
 def import_excel(req: Request) -> Response:
     payload = req.json()
+    if _replace_denied(req, payload):
+        return error("forbidden", 403)
     path = _safe_child(CONFIG.files_dir, payload.get("file") or "")
     if path is None or not path.exists():
         return error("file-not-found", 404)
@@ -54,6 +61,8 @@ def import_excel(req: Request) -> Response:
 @router.post("/api/import/csv")
 def import_csv(req: Request) -> Response:
     payload = req.json()
+    if _replace_denied(req, payload):
+        return error("forbidden", 403)
     raw = (payload.get("text") or "").encode("utf-8")
     rows = excel_io.read_csv(raw, payload.get("type", "mfg"))
     return json_response(STORE.merge_tasks(rows, payload.get("mode", "upsert")))
