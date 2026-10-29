@@ -852,13 +852,14 @@
   function copyPreviousDay() {
     var cur = U.parseDate(curDate());
     var src = [], probe = cur;
-    // 定例予定はそれぞれの日に登録済みなので複製しない
-    function copyable(p) { return !p.seriesId; }
     for (var i = 0; i < 7 && !src.length; i++) {
       probe = U.addDays(probe, -1);
-      src = plansOf(U.iso(probe), me(), 'plan').filter(copyable);
+      src = plansOf(U.iso(probe), me(), 'plan');
     }
     if (!src.length) { U.toast('直近7日間に予定がありません', 'warn'); return; }
+    // 定例予定はそれぞれの日に登録済みなので複製しない
+    src = src.filter(function (p) { return !p.seriesId; });
+    if (!src.length) { U.toast(U.fmtDate(U.iso(probe)) + ' の予定は定例予定のみのため、複製するものがありません', 'warn'); return; }
     P.rows = P.rows.filter(function (r) { return !isBlank(r); });
     src.forEach(function (p) {
       var r = newRow(true, {
