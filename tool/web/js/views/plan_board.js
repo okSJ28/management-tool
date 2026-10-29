@@ -5,7 +5,7 @@
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var B = { start: null, span: 14, category: '', member: '', project: '', kind: '' };
+  var B = { start: null, span: 7, category: '', member: '', project: '', kind: '' };
   var R = { from: '', to: '', dim: 'category' };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -54,7 +54,7 @@
       bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: '表示日数' }),
       (function () {
         var s = U.el('select', { onchange: function () { B.span = parseInt(this.value, 10); App.render(); } });
-        [7, 14, 21, 31].forEach(function (n) { s.appendChild(U.el('option', { value: n, text: n + '日', selected: B.span === n })); });
+        [7, 14].forEach(function (n) { s.appendChild(U.el('option', { value: n, text: n + '日', selected: B.span === n })); });
         return s;
       })()]));
       function sel(label, key, options) {
@@ -78,6 +78,10 @@
         class: 'btn btn-primary btn-sm', text: '＋ 予定を登録',
         onclick: function () { Views.planInput._editor({ date: todayIso, endDate: todayIso }, function () { App.render(); }); }
       }));
+      bar.appendChild(U.el('button', {
+        class: 'btn btn-sm', text: '🔁 定例予定を登録', title: '毎週の会議など、決まった曜日の予定をまとめて登録します',
+        onclick: function () { Views.planInput._recurring(function () { App.render(); }); }
+      }));
       bar.appendChild(U.el('button', { class: 'btn btn-sm', text: '⬇ CSV出力', onclick: exportPlans }));
       root.appendChild(bar);
 
@@ -87,22 +91,76 @@
         return;
       }
 
+      // 日付ごとに ☀予定・🌙実績 の2列（種別で絞り込んだときはその列だけ）
+      var cols = B.kind ? [B.kind] : ['plan', 'result'];
+      var COL_W = cols.length > 1 ? '104px' : '130px';
+      function dayBg(d, iso, head) {
+        if (iso === todayIso) return head ? 'var(--primary-soft)' : '#f5f9ff';
+        return U.isWeekend(d) ? (head ? '#fef2f2' : '#fffafa') : null;
+      }
+
       var card = U.el('div', { class: 'card' });
       var wrap = U.el('div', { class: 'table-wrap', style: { maxHeight: 'calc(100vh - 300px)' } });
-      var tbl = U.el('table', { class: 'grid-table' });
-      var hr = U.el('tr');
-      hr.appendChild(U.el('th', { class: 'col-pin', style: { minWidth: '120px', width: '120px' }, text: '担当者' }));
+      var tbl = U.el('table', { class: 'grid-table pb-board' });
+      var hr1 = U.el('tr', { class: 'pb-h1' }), hr2 = U.el('tr', { class: 'pb-h2' });
+      hr1.appendChild(U.el('th', { class: 'col-pin', rowspan: 2, style: { minWidth: '120px', width: '120px' }, text: '担当者' }));
       days.forEach(function (d) {
         var iso = U.iso(d);
-        hr.appendChild(U.el('th', {
-          class: 'center', style: {
-            minWidth: '120px', width: '120px',
-            background: iso === todayIso ? 'var(--primary-soft)' : (U.isWeekend(d) ? '#fef2f2' : null)
-          },
+        hr1.appendChild(U.el('th', {
+          class: 'center pb-day', colspan: cols.length, style: { background: dayBg(d, iso, true) },
           text: (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')'
         }));
+        cols.forEach(function (k, i) {
+          hr2.appendChild(U.el('th', {
+            class: 'center' + (i ? '' : ' pb-day'),
+            style: { minWidth: COL_W, width: COL_W, background: dayBg(d, iso, true) },
+            text: k === 'plan' ? '☀ 予定' : '🌙 実績'
+          }));
+        });
       });
-      tbl.appendChild(U.el('thead', {}, [hr]));
+      tbl.appendChild(U.el('thead', {}, [hr1, hr2]));
+
+      function planCard(p) {
+        var color = State.planColor(p.category);
+        var result = isResult(p);
+        return U.el('div', {
+          style: {
+            background: result ? 'transparent' : color + '1c',
+            border: result ? '1px dashed ' + color : null,
+            borderLeft: '3px solid ' + color, borderRadius: '4px',
+            padding: '2px 5px', marginBottom: '2px', fontSize: '10.5px', whiteSpace: 'normal'
+          },
+          title: (result ? '実績' : '予定') + ' / ' + (p.category || '') + ' ' + (p.title || '') + '\n' + (p.project || '')
+            + '\n' + (result ? '実績 ' + (p.actualHours || 0) + 'h 進捗 ' + (p.progress === null || p.progress === undefined ? '-' : p.progress + '%')
+              : '予定 ' + (p.hours || 0) + 'h') + (p.seriesId ? '\n🔁 定例予定' : ''),
+          onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
+        }, [
+          U.el('div', { class: 'strong', style: { color: color }, text: (p.seriesId ? '🔁 ' : '') + (p.category || '—') }),
+          p.title ? U.el('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', overflowWrap: 'anywhere' }, text: p.title }) : null,
+          U.el('div', { class: 'muted mono' }, [
+            document.createTextNode(result
+              ? (p.actualHours ? U.fmtH(p.actualHours) + 'h' : '')
+              : (p.hours ? U.fmtH(p.hours) + 'h' : '')),
+            result && p.progress !== null && p.progress !== undefined
+              ? U.el('span', { class: 'strong', style: { marginLeft: '4px', color: color }, text: p.progress + '%' }) : null
+          ])
+        ]);
+      }
+      function assignBand(a) {
+        var ac = State.planColor(a.category);
+        return U.el('div', {
+          title: '【取組み予定】' + (a.category || '') + ' ' + (a.title || '') + '\n'
+            + U.fmtDateFull(a.date) + '〜' + U.fmtDateFull(a.endDate || a.date)
+            + '\n予定 ' + (a.hours || 0) + 'h',
+          style: {
+            background: ac, color: '#fff', borderRadius: '3px', padding: '1px 4px',
+            marginBottom: '2px', fontSize: '9.5px', fontWeight: 700,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+          },
+          onclick: function (e) { e.stopPropagation(); Views.planAssign._editor(a, function () { App.render(); }); },
+          text: '📌 ' + (a.title || a.category || '')
+        });
+      }
 
       var tb = U.el('tbody');
       members.forEach(function (m) {
@@ -121,62 +179,38 @@
           var list = plans.filter(function (p) {
             return p.member === m && p.date && iso >= p.date && iso <= (p.endDate || p.date);
           });
-          var td = U.el('td', {
-            style: {
-              verticalAlign: 'top', padding: '3px', cursor: 'pointer',
-              background: iso === todayIso ? '#f5f9ff' : (U.isWeekend(d) ? '#fffafa' : null)
-            },
-            onclick: function (e) {
-              if (e.target !== td || !State.canEdit(m)) return;
-              Views.planInput._editor({ member: m, date: iso, endDate: iso }, function () { App.render(); });
+          var dayPlans = list.filter(isPlan);
+          // 実績は元の予定と同じ並びにする（予定外の実績は後ろ）
+          var order = {};
+          dayPlans.forEach(function (p, i) { order[p.id] = i; });
+          var dayResults = list.filter(isResult).map(function (r, i) {
+            return { r: r, k: r.sourceId && order.hasOwnProperty(r.sourceId) ? order[r.sourceId] : dayPlans.length + i };
+          }).sort(function (a, b) { return a.k - b.k; }).map(function (x) { return x.r; });
+
+          cols.forEach(function (k, ci) {
+            var td = U.el('td', {
+              class: ci ? null : 'pb-day',
+              style: { verticalAlign: 'top', padding: '3px', cursor: 'pointer', background: dayBg(d, iso, false) },
+              onclick: function (e) {
+                if (e.target !== td || !State.canEdit(m)) return;
+                Views.planInput._editor({ member: m, date: iso, endDate: iso, kind: k }, function () { App.render(); });
+              }
+            });
+            // 取組み予定（期間）の帯は予定の列の上部に重ねる
+            if (k === 'plan') {
+              State.assignmentsOn(iso, m).forEach(function (a) {
+                if (B.category && a.category !== B.category) return;
+                if (B.project && a.project !== B.project) return;
+                td.appendChild(assignBand(a));
+              });
             }
+            var items = k === 'plan' ? dayPlans : dayResults;
+            items.forEach(function (p) { td.appendChild(planCard(p)); });
+            if (!items.length) {
+              td.appendChild(U.el('div', { class: 'muted', style: { fontSize: '10px', textAlign: 'center', padding: '4px 0', pointerEvents: 'none' }, text: '＋' }));
+            }
+            tr.appendChild(td);
           });
-          // 取組み予定（期間）の帯を上部に重ねる
-          State.assignmentsOn(iso, m).forEach(function (a) {
-            if (B.category && a.category !== B.category) return;
-            if (B.project && a.project !== B.project) return;
-            var ac = State.planColor(a.category);
-            td.appendChild(U.el('div', {
-              title: '【取組み予定】' + (a.category || '') + ' ' + (a.title || '') + '\n'
-                + U.fmtDateFull(a.date) + '〜' + U.fmtDateFull(a.endDate || a.date)
-                + '\n予定 ' + (a.hours || 0) + 'h',
-              style: {
-                background: ac, color: '#fff', borderRadius: '3px', padding: '1px 4px',
-                marginBottom: '2px', fontSize: '9.5px', fontWeight: 700,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-              },
-              onclick: function (e) { e.stopPropagation(); Views.planAssign._editor(a, function () { App.render(); }); },
-              text: '📌 ' + (a.title || a.category || '')
-            }));
-          });
-          list.forEach(function (p) {
-            var color = State.planColor(p.category);
-            var result = isResult(p);
-            td.appendChild(U.el('div', {
-              style: {
-                background: result ? 'transparent' : color + '1c',
-                border: result ? '1px dashed ' + color : null,
-                borderLeft: '3px solid ' + color, borderRadius: '4px',
-                padding: '2px 5px', marginBottom: '2px', fontSize: '10.5px', whiteSpace: 'normal'
-              },
-              title: (result ? '実績' : '予定') + ' / ' + (p.category || '') + ' ' + (p.title || '') + '\n' + (p.project || '')
-                + '\n' + (result ? '実績 ' + (p.actualHours || 0) + 'h 進捗 ' + (p.progress === null || p.progress === undefined ? '-' : p.progress + '%')
-                  : '予定 ' + (p.hours || 0) + 'h'),
-              onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
-            }, [
-              U.el('div', { class: 'strong', style: { color: color }, text: (result ? '🌙 ' : '☀ ') + (p.category || '—') }),
-              p.title ? U.el('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', overflowWrap: 'anywhere' }, text: p.title }) : null,
-              U.el('div', { class: 'muted mono' }, [
-                document.createTextNode(result
-                  ? (p.actualHours ? U.fmtH(p.actualHours) + 'h' : '')
-                  : (p.hours ? U.fmtH(p.hours) + 'h' : '')),
-                result && p.progress !== null && p.progress !== undefined
-                  ? U.el('span', { class: 'strong', style: { marginLeft: '4px', color: color }, text: p.progress + '%' }) : null
-              ])
-            ]));
-          });
-          if (!list.length) td.appendChild(U.el('div', { class: 'muted', style: { fontSize: '10px', textAlign: 'center', padding: '4px 0' }, text: '＋' }));
-          tr.appendChild(td);
         });
         tb.appendChild(tr);
       });
