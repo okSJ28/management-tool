@@ -133,8 +133,7 @@
       var counts = {
         tasks: State.tasks.length,
         members: State.members().length,
-        dashboard: State.tasks.filter(function (t) { return t.isLate; }).length || null,
-        planBoard: (State.plans || []).length || null
+        dashboard: State.tasks.filter(function (t) { return t.isLate; }).length || null
       };
       this.appDef().groups.forEach(function (g) {
         var items = g.items.filter(canView);
