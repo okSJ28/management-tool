@@ -1261,12 +1261,15 @@
   var LEAVE_TYPES = [
     { value: 'full', label: '終日休暇', ratio: 1 },
     { value: 'am', label: '午前休', ratio: 0.5 },
-    { value: 'pm', label: '午後休', ratio: 0.5 }
+    { value: 'pm', label: '午後休', ratio: 0.5 },
+    { value: 'hour', label: '時間休', ratio: null }
   ];
+  /* 時間休は 1 時間単位。1 日分に満たない時間まで（基準 7.5h なら 7h） */
+  function hourLeaveMax() { return Math.max(1, Math.ceil(dayTarget()) - 1); }
 
   function leaveEditor(onSaved) {
     var admin = State.isAdmin();
-    var draft = { member: me(), from: curDate(), to: curDate(), type: 'full', skipWeekend: true, note: null };
+    var draft = { member: me(), from: curDate(), to: curDate(), type: 'full', hourCount: 1, skipWeekend: true, note: null };
     var grid = U.el('div', { class: 'form-grid' });
     var preview = U.el('div', { class: 'hint', style: { fontSize: '12.5px' } });
     function field(label, node, span, hint) {
@@ -1276,7 +1279,10 @@
       ]));
     }
     function type() { return LEAVE_TYPES.filter(function (t) { return t.value === draft.type; })[0]; }
-    function hours() { return Math.round(dayTarget() * type().ratio * 100) / 100; }
+    function hours() {
+      if (type().ratio === null) return draft.hourCount;
+      return Math.round(dayTarget() * type().ratio * 100) / 100;
+    }
     function dates() {
       return seriesDates(draft.from, draft.to, draft.skipWeekend ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]);
     }
@@ -1291,7 +1297,7 @@
       });
       preview.textContent = !all.length ? '対象日がありません（期間を確認してください）'
         : '対象日 ' + all.length + ' 日（' + all.slice(0, 4).map(U.fmtDate).join('・') + (all.length > 4 ? ' …' : '') + '）'
-          + ' → 「' + type().label + '」' + fmtH(hours()) + 'h を ' + list.length + ' 件登録します'
+          + ' → 「' + type().label + '」' + (hours() === null ? '?' : fmtH(hours())) + 'h を ' + list.length + ' 件登録します'
           + (all.length > list.length ? '（休暇を登録済みの ' + (all.length - list.length) + ' 日は除く）' : '')
           + (filled.length ? '。' + filled.map(U.fmtDate).join('・') + ' は入力済みの予定・実績があります（そのまま残ります）' : '');
     }
@@ -1315,9 +1321,24 @@
     to.addEventListener('change', function () { draft.to = this.value || null; paintPreview(); });
     field('開始日', from);
     field('終了日', to, false, '1 日だけなら開始日と同じ日');
-    var typeSel = U.el('select', { onchange: function () { draft.type = this.value; paintPreview(); } });
+    // 時間休を選んだときだけ、区分の右に時間の欄を出す
+    var hourInput = U.el('input', {
+      type: 'number', class: 'num', min: '1', max: String(hourLeaveMax()), step: '1', value: String(draft.hourCount),
+      style: { width: '64px' }, title: '時間休の時間（1 時間単位）'
+    });
+    hourInput.addEventListener('input', function () { draft.hourCount = U.num(this.value); paintPreview(); });
+    var hourBox = U.el('span', { class: 'row-flex', style: { gap: '4px', flex: '0 0 auto', flexWrap: 'nowrap', display: 'none' } }, [hourInput, document.createTextNode('h')]);
+    var typeSel = U.el('select', {
+      style: { flex: '1 1 auto', minWidth: '0' },
+      onchange: function () {
+        draft.type = this.value;
+        hourBox.style.display = type().ratio === null ? '' : 'none';
+        paintPreview();
+      }
+    });
     LEAVE_TYPES.forEach(function (t) { typeSel.appendChild(U.el('option', { value: t.value, text: t.label })); });
-    field('区分', typeSel, false, '半日休は基準時間の半分（' + fmtH(dayTarget() / 2) + 'h）で登録します。残りの作業は通常どおり入力してください');
+    field('区分', U.el('div', { class: 'row-flex', style: { gap: '8px', flexWrap: 'nowrap' } }, [typeSel, hourBox]), false,
+      '半日休は基準時間の半分（' + fmtH(dayTarget() / 2) + 'h）、時間休は 1〜' + hourLeaveMax() + 'h（1 時間単位）で登録します。残りの作業は通常どおり入力してください');
     var weekend = U.el('input', { type: 'checkbox', checked: true });
     weekend.addEventListener('change', function () { draft.skipWeekend = this.checked; paintPreview(); });
     field('土日', U.el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 'normal', cursor: 'pointer' } },
@@ -1340,6 +1361,10 @@
           if (!draft.from || !draft.to || draft.from > draft.to) { U.toast('開始日・終了日を確認してください', 'warn'); return; }
           if (U.diffDays(U.parseDate(draft.from), U.parseDate(draft.to)) >= SERIES_MAX_DAYS) {
             U.toast('期間は最長 1 年です', 'warn'); return;
+          }
+          var h = hours();
+          if (type().ratio === null && !(h >= 1 && h <= hourLeaveMax() && h === Math.floor(h))) {
+            U.toast('時間休は 1〜' + hourLeaveMax() + ' の整数（1 時間単位）で入力してください', 'warn'); return;
           }
           var list = targets();
           if (!list.length) { U.toast('登録する日がありません（対象日なし、またはすべて休暇を登録済みです）', 'warn'); return; }

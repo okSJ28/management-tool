@@ -264,6 +264,7 @@ table.vol-table .vpin-2::after {
   padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 7px;
   background: var(--surface); outline: none; width: 100%;
 }
+.field input[type=checkbox], .field input[type=radio] { width: auto; padding: 0; margin: 0; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .field input[readonly] { background: var(--surface-2); color: var(--text-2); }
 .field .hint { font-size: 10.5px; color: var(--text-3); }
