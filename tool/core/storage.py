@@ -21,6 +21,8 @@ from .db import Database
 DB = Database(CONFIG.db_path)
 
 _LOCK = threading.RLock()
+# meta key recording that plan-only projects were removed from the 案件名 master
+_PLAN_PROJECTS_MIGRATION = "planProjectsRemovedAt"
 
 
 class ConflictError(Exception):
@@ -124,7 +126,28 @@ class Store:
             }
             self._data = base
             self._pending = _empty_pending()
+            self._migrate_plan_projects()
             return base
+
+    def _migrate_plan_projects(self) -> None:
+        """One-off: drop project names that only appear in 業務予定 from the 案件名 master.
+
+        以前は業務予定の保存でも案件名マスタに追加していたため、開発管理の案件の選択肢に
+        業務予定だけの案件（健康診断・課会など）が混ざっていた。タスクにある案件と、
+        どこにも使われていない手入力の案件は残す。
+        """
+        if DB.get_meta(_PLAN_PROJECTS_MIGRATION):
+            return
+        data = self._data
+        task_projects = {t.get("project") for t in data["tasks"] if t.get("project")}
+        plan_projects = {p.get("project") for p in data.get("plans", []) if p.get("project")}
+        projects = data["masters"].get("projects") or []
+        kept = [p for p in projects if p in task_projects or p not in plan_projects]
+        if kept != projects:
+            data["masters"]["projects"] = kept
+            self._pending["masters"] = True
+            self.save()
+        DB.set_meta(_PLAN_PROJECTS_MIGRATION, _now())
 
     def save(self) -> None:
         with _LOCK:
@@ -433,17 +456,14 @@ class Store:
         data = self.load()
         masters = data["masters"]
         members = list(masters.get("members") or [])
-        projects = list(masters.get("projects") or [])
         excluded = set(masters.get("excludedMembers") or [])
+        # 案件名マスタは開発管理（タスク）の案件だけにするため、業務予定の案件は追加しない
         for plan in data.get("plans", []):
             if plan.get("member") and plan["member"] not in members and plan["member"] not in excluded:
                 members.append(plan["member"])
-            if plan.get("project") and plan["project"] not in projects:
-                projects.append(plan["project"])
-        if members != masters.get("members") or sorted(projects) != masters.get("projects"):
+        if members != masters.get("members"):
             self._pending["masters"] = True
         masters["members"] = members
-        masters["projects"] = sorted(projects)
 
     # ------------------------------------------------- plans (bulk save)
     def save_plans(self, upserts: list[dict], delete_ids: list[str],

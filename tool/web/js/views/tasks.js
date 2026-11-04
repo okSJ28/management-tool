@@ -103,7 +103,7 @@
       })
     ]));
     sel('担当者', 'assignee', State.members());
-    sel('案件', 'project', State.projects());
+    sel('案件', 'project', State.taskProjects());
     sel('ステータス', 'status', State.options('status'));
     sel('区分', 'kubun', State.options('kubun'));
     sel('リソース区分', 'resource', U.uniq(State.tasks.map(function (t) { return t.resource; })).sort());

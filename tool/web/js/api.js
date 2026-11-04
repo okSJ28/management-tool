@@ -197,10 +197,16 @@
       return Array.from(set).filter(Boolean).sort();
     },
 
+    /* 業務予定の入力候補用：開発タスクと業務予定の両方の案件 */
     projects: function () {
       var list = this.tasks.map(function (t) { return t.project; })
         .concat((this.plans || []).map(function (p) { return p.project; }));
       return U.uniq(list).sort();
+    },
+
+    /* 開発管理の絞り込み用：開発タスクの案件だけ（業務予定だけの案件は含めない） */
+    taskProjects: function () {
+      return U.uniq(this.tasks.map(function (t) { return t.project; })).sort();
     },
 
     tasksOfMember: function (name) {

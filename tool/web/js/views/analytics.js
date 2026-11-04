@@ -328,7 +328,7 @@
       selector('リソース区分', [''].concat(U.uniq(State.tasks.map(function (t) { return t.resource; })).sort()),
         A.resource, function (v) { A.resource = v; App.render(); });
       selector('区分', [''].concat(State.options('kubun')), A.kubun, function (v) { A.kubun = v; App.render(); });
-      selector('案件', [''].concat(State.projects()), A.project, function (v) { A.project = v; App.render(); });
+      selector('案件', [''].concat(State.taskProjects()), A.project, function (v) { A.project = v; App.render(); });
 
       bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: '期間 From' }),
       U.el('input', { type: 'date', value: A.from, onchange: function () { A.from = this.value; App.render(); } })]));

@@ -178,7 +178,7 @@
         options.forEach(function (o) { s.appendChild(U.el('option', { value: o, text: o, selected: G[key] === o })); });
         bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
       }
-      sel('案件', 'filterProject', State.projects());
+      sel('案件', 'filterProject', State.taskProjects());
       sel('担当者', 'filterAssignee', State.members());
 
       bar.appendChild(U.el('label', { class: 'row-flex', style: { fontSize: '11.5px', marginTop: '12px' } }, [
