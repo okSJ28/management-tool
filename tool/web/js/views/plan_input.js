@@ -8,7 +8,7 @@
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var P = { date: null, member: null, rows: null, removed: null, key: null, dirty: false, teamOpen: false, prevOpen: true };
+  var P = { date: null, member: null, rows: null, leaves: [], removed: null, key: null, dirty: false, teamOpen: false, prevOpen: true };
 
   var PHASE = {
     plan: {
@@ -38,13 +38,42 @@
     return State.plansOnDate(iso, member).filter(function (p) { return kindOf(p) === kind; });
   }
 
-  /* 予定がすべて休暇の日は終業前入力が不要なので、実績が無くても済とみなす */
+  /* 休暇で 1 日が埋まっているか（{category, hours} の配列）。
+     時間が空欄の休暇（休暇登録の導入前の入力）は終日とみなす。午前休・午後休だけでは埋まらない */
+  function leaveCovers(list) {
+    var lv = list.filter(function (p) { return p.category === LEAVE; });
+    if (!lv.length) return false;
+    return lv.some(function (p) { return p.hours === null || p.hours === undefined; })
+      || U.sum(lv, function (p) { return p.hours; }) >= dayTarget();
+  }
+  /* 予定がすべて休暇で 1 日が埋まっている日は終業前入力が不要なので、実績が無くても済とみなす */
   function isLeaveDay(iso, member) {
     var list = plansOf(iso, member, 'plan');
-    return list.length > 0 && list.every(function (p) { return p.category === LEAVE; });
+    return list.length > 0 && list.every(function (p) { return p.category === LEAVE; }) && leaveCovers(list);
   }
   function resultDone(iso, member) {
     return plansOf(iso, member, 'result').length > 0 || isLeaveDay(iso, member);
+  }
+  function hasLeave(iso, member) {
+    return plansOf(iso, member, 'plan').some(function (p) { return p.category === LEAVE; });
+  }
+  /* 休暇は「🏖 休暇登録」から登録するので、入力シート・単票の工程の選択肢には出さない */
+  function workCategories() {
+    return (State.masters.planCategories || []).filter(function (c) { return c.value !== LEAVE; });
+  }
+
+  /* 対象日より前で test を満たす直近の日（直近 7 日以内）。
+     休暇の日は 7 日に数えないので、長い休暇明けでも休暇前の入力を拾える。無ければ null */
+  var LOOKBACK_DAYS = 7, LOOKBACK_MAX = 62;
+  function lookBack(date, member, test) {
+    var probe = U.parseDate(date), budget = LOOKBACK_DAYS;
+    for (var i = 0; i < LOOKBACK_MAX && budget > 0; i++) {
+      probe = U.addDays(probe, -1);
+      var iso = U.iso(probe);
+      if (test(iso)) return iso;
+      if (!hasLeave(iso, member)) budget--;
+    }
+    return null;
   }
 
   /* 対象日にかかっている取組み予定 */
@@ -89,17 +118,20 @@
     return r;
   }
 
-  /* 予定に、その予定を元にした実績（sourceId）を 1 件ずつ対応づける。残りの実績は「予定外」の行になる */
-  function buildRows(date, member) {
+  /* 予定に、その予定を元にした実績（sourceId）を 1 件ずつ対応づける。残りの実績は「予定外」の行になる。
+     leaves を渡すと、休暇の予定は行にせず leaves に入れる（入力シートでは編集できない行として表示する） */
+  function buildRows(date, member, leaves) {
     var results = plansOf(date, member, 'result');
     var used = {};
-    var rows = plansOf(date, member, 'plan').map(function (p) {
+    var rows = [];
+    plansOf(date, member, 'plan').forEach(function (p) {
       var res = null;
       results.some(function (r) {
         if (!used[r.id] && r.sourceId && r.sourceId === p.id) { used[r.id] = true; res = r; return true; }
         return false;
       });
-      return makeRow(p, res);
+      if (leaves && !res && p.category === LEAVE) { leaves.push(p); return; }
+      rows.push(makeRow(p, res));
     });
     results.forEach(function (r) { if (!used[r.id]) rows.push(makeRow(null, r)); });
     return rows;
@@ -116,16 +148,17 @@
 
   /* 1日の予定工数の基準（設定の「1人日あたり時間」） */
   function dayTarget() { return State.settings().workHoursPerDay || 7.5; }
-  /* 予定（{category, hours} の配列）の合計が基準に足りない時間。予定なし・休暇のみの日は 0 */
+  /* 予定（{category, hours} の配列）の合計が基準に足りない時間。予定なし・終日休暇の日は 0 */
   function planShortage(list) {
-    if (!list.length || list.every(function (p) { return p.category === LEAVE; })) return 0;
+    if (!list.length || leaveCovers(list)) return 0;
     var d = Math.round((dayTarget() - U.sum(list, function (p) { return p.hours; })) * 100) / 100;
     return d > 0 ? d : 0;
   }
-  /* シート上の予定行（入力中の内容） */
+  /* シート上の予定行（入力中の内容。休暇を含む） */
   function sheetPlans() {
     return P.rows.filter(function (r) { return r.hasPlan && !isBlank(r); })
-      .map(function (r) { return { category: r.f.category, hours: r.hours }; });
+      .map(function (r) { return { category: r.f.category, hours: r.hours }; })
+      .concat(P.leaves.map(function (p) { return { category: p.category, hours: p.hours }; }));
   }
 
   function isBlank(r) {
@@ -140,7 +173,8 @@
     P.key = key;
     P.dirty = false;
     P.removed = [];
-    P.rows = buildRows(curDate(), me());
+    P.leaves = [];
+    P.rows = buildRows(curDate(), me(), P.leaves);
   }
 
   function touch(r, shared) {
@@ -178,7 +212,8 @@
 
     function paint() {
       U.clear(tbody);
-      if (!P.rows.length) P.rows.push(newRow(true));
+      if (!P.rows.length && !P.leaves.length) P.rows.push(newRow(true));
+      P.leaves.forEach(function (p) { tbody.appendChild(leaveNode(p, paint)); });
       P.rows.forEach(function (r) { tbody.appendChild(rowNode(r, paint, refresh)); });
       tbody.appendChild(U.el('tr', { class: 'pi-add' }, [
         U.el('td', { colspan: '10' }, [
@@ -202,7 +237,8 @@
     }
 
     function refresh() {
-      var live = P.rows.filter(function (r) { return !isBlank(r); });
+      var live = P.rows.filter(function (r) { return !isBlank(r); })
+        .concat(P.leaves.map(function (p) { return makeRow(p, null); }));
       var planned = U.sum(live.filter(function (r) { return r.hasPlan; }), function (r) { return r.hours; });
       var done = live.filter(hasResult);
       var actual = U.sum(done, effActual);
@@ -353,10 +389,12 @@
     });
     r.catNode = cat;
     cat.appendChild(U.el('option', { value: '', text: '— 選択 —' }));
-    (State.masters.planCategories || []).forEach(function (c) {
+    var cats = workCategories();
+    cats.forEach(function (c) {
       cat.appendChild(U.el('option', { value: c.value, text: c.value, selected: r.f.category === c.value }));
     });
-    if (r.f.category && !(State.masters.planCategories || []).some(function (c) { return c.value === r.f.category; })) {
+    // マスタから削除された工程や、以前に入力した休暇の実績などは現在の値として残す
+    if (r.f.category && !cats.some(function (c) { return c.value === r.f.category; })) {
       cat.appendChild(U.el('option', { value: r.f.category, text: r.f.category, selected: true }));
     }
     cat.value = r.f.category || '';
@@ -516,6 +554,32 @@
       })
     ]));
     return tr;
+  }
+
+  /* 休暇の行（編集不可。✕ で取り消し、保存で確定） */
+  function leaveNode(p, paint) {
+    return U.el('tr', { class: 'pi-leave', style: { background: '#f8fafc' } }, [
+      U.el('td', { class: 'pi-first', style: { boxShadow: 'inset 3px 0 0 ' + State.planColor(LEAVE) } }, [
+        U.el('span', { class: 'chip', style: { color: State.planColor(LEAVE) }, text: '🏖 ' + LEAVE })
+      ]),
+      // 作業内容の無い休暇（休暇登録の導入前の入力）は終日とみなす
+      U.el('td', { colspan: '3', class: 'strong', text: (p.title || LEAVE_TYPES[0].label) + (p.note ? '　' + p.note : '') }),
+      U.el('td', { class: 'num pi-am', text: p.hours === null || p.hours === undefined ? '' : fmtH(p.hours) }),
+      U.el('td', { colspan: '4', class: 'pi-pm muted', text: '休暇のため実績の入力は不要です（登録は「🏖 休暇登録」から）' }),
+      U.el('td', {}, [
+        U.el('button', {
+          class: 'icon-btn', text: '✕', title: 'この休暇を取り消す（保存で確定）',
+          onclick: function () {
+            var i = P.leaves.indexOf(p);
+            if (i < 0) return;
+            P.leaves.splice(i, 1);
+            P.removed.push(p.id);
+            P.dirty = true;
+            paint();
+          }
+        })
+      ])
+    ]);
   }
 
   /* ------------------------------------------------ 保存 */
@@ -706,28 +770,24 @@
     return card;
   }
 
-  /* 対象日より前で、直近 7 日以内に入力がある日（土日・休日を飛ばす）。無ければ null */
+  /* 対象日より前で、直近 7 日以内に休暇以外の入力がある日（土日・休暇の日を飛ばす）。無ければ null */
   function previousEntryDay(date, member) {
-    var probe = U.parseDate(date);
-    for (var i = 0; i < 7; i++) {
-      probe = U.addDays(probe, -1);
-      var iso = U.iso(probe);
-      if (State.plansOnDate(iso, member).some(function (p) { return kindOf(p) !== 'assignment'; })) return iso;
-    }
-    return null;
+    return lookBack(date, member, function (iso) {
+      return State.plansOnDate(iso, member).some(function (p) { return kindOf(p) !== 'assignment' && p.category !== LEAVE; });
+    });
   }
 
   /* 前回入力日の内容（参照のみ） */
   function previousDay(date, member) {
     var prev = previousEntryDay(date, member);
-    var label = prev ? U.fmtDateFull(prev) + '（' + WD[U.parseDate(prev).getDay()] + '）' : '直近7日間に入力なし';
+    var label = prev ? U.fmtDateFull(prev) + '（' + WD[U.parseDate(prev).getDay()] + '）' : '直近7日間（休暇の日を除く）に入力なし';
     var card = U.el('div', { class: 'card mt16' }, [
       U.el('div', {
         class: 'card-head', style: { cursor: prev ? 'pointer' : null },
         onclick: prev ? function () { P.prevOpen = !P.prevOpen; App.render(); } : null
       }, [
         U.el('h3', { text: '📋 前回の入力（' + label + '）' }),
-        U.el('span', { class: 'muted', text: '参照のみ' }),
+        U.el('span', { class: 'muted', text: '参照のみ・休暇の日は飛ばします' }),
         prev ? U.el('div', { class: 'tools' }, [U.el('button', { class: 'btn btn-sm', text: P.prevOpen ? '▲ 閉じる' : '▼ 開く' })]) : null
       ])
     ]);
@@ -835,6 +895,13 @@
           recurringEditor(function () { App.render(); });
         }
       }));
+      bar.appendChild(U.el('button', {
+        class: 'btn btn-sm', text: '🏖 休暇登録', title: '休暇（終日・午前休・午後休）を期間でまとめて登録します',
+        onclick: function () {
+          if (P.dirty) { U.toast('入力中の内容を保存してから登録してください', 'warn'); return; }
+          leaveEditor(function () { App.render(); });
+        }
+      }));
       root.appendChild(bar);
 
       if (!member) {
@@ -850,16 +917,13 @@
   };
 
   function copyPreviousDay() {
-    var cur = U.parseDate(curDate());
-    var src = [], probe = cur;
-    for (var i = 0; i < 7 && !src.length; i++) {
-      probe = U.addDays(probe, -1);
-      src = plansOf(U.iso(probe), me(), 'plan');
-    }
-    if (!src.length) { U.toast('直近7日間に予定がありません', 'warn'); return; }
+    // 休暇の日は飛ばして、休暇前の予定を複製する（休暇の予定自体も複製しない）
+    function work(iso) { return plansOf(iso, me(), 'plan').filter(function (p) { return p.category !== LEAVE; }); }
+    var day = lookBack(curDate(), me(), function (iso) { return work(iso).length > 0; });
+    if (!day) { U.toast('直近7日間（休暇の日を除く）に予定がありません', 'warn'); return; }
     // 定例予定はそれぞれの日に登録済みなので複製しない
-    src = src.filter(function (p) { return !p.seriesId; });
-    if (!src.length) { U.toast(U.fmtDate(U.iso(probe)) + ' の予定は定例予定のみのため、複製するものがありません', 'warn'); return; }
+    var src = work(day).filter(function (p) { return !p.seriesId; });
+    if (!src.length) { U.toast(U.fmtDate(day) + ' の予定は定例予定のみのため、複製するものがありません', 'warn'); return; }
     P.rows = P.rows.filter(function (r) { return !isBlank(r); });
     src.forEach(function (p) {
       var r = newRow(true, {
@@ -871,7 +935,7 @@
       P.rows.push(r);
     });
     P.dirty = true;
-    U.toast(U.fmtDate(U.iso(probe)) + ' の予定 ' + src.length + ' 件を複製しました（未保存）', 'ok');
+    U.toast(U.fmtDate(day) + ' の予定 ' + src.length + ' 件を複製しました（未保存）', 'ok');
     App.render();
   }
 
@@ -881,7 +945,7 @@
       return Views.planAssign._editor(base, onSaved);
     }
     var draft = Object.assign({
-      member: me(), kind: 'plan', category: (State.masters.planCategories[0] || {}).value,
+      member: me(), kind: 'plan', category: (workCategories()[0] || {}).value,
       status: '予定', hours: State.settings().workHoursPerDay, allDay: true
     }, base || {});
     draft.kind = kindOf(draft);
@@ -939,7 +1003,8 @@
     field('担当者', memberSel);
     field('PJCD', codeField('projectCodes', 'projectCode'));
     field('作業コード', codeField('workCodes', 'workCode'));
-    field('工程（作業区分）', select(State.masters.planCategories || [], 'category', 'value'));
+    // 休暇は「🏖 休暇登録」から登録する（登録済みの休暇を開いたときは選択肢に残す）
+    field('工程（作業区分）', select(draft.category === LEAVE ? State.masters.planCategories || [] : workCategories(), 'category', 'value'));
     field('対象日', input({ type: 'date', value: draft.date || '' }, 'date'));
     field('予定工数(h)', input({ type: 'number', step: '0.5', value: draft.hours === null || draft.hours === undefined ? '' : draft.hours }, 'hours', U.num));
     field('実績工数(h)', input({ type: 'number', step: '0.5', value: draft.actualHours === null || draft.actualHours === undefined ? '' : draft.actualHours }, 'actualHours', U.num));
@@ -1133,7 +1198,7 @@
     field('終了日', to, false, '最長 1 年');
     var cat = U.el('select', { onchange: function () { draft.category = this.value || null; paintPreview(); } });
     cat.appendChild(U.el('option', { value: '', text: '— 選択 —' }));
-    (State.masters.planCategories || []).forEach(function (c) { cat.appendChild(U.el('option', { value: c.value, text: c.value })); });
+    workCategories().forEach(function (c) { cat.appendChild(U.el('option', { value: c.value, text: c.value })); });
     field('工程（作業区分）', cat);
     var hours = U.el('input', { type: 'number', step: '0.25', min: '0', max: String(DAY_HOURS), placeholder: '例）0.5' });
     hours.addEventListener('input', function () { draft.hours = U.num(this.value); });
@@ -1191,6 +1256,112 @@
     ]);
   }
 
+  /* ------------------------------------------------ 休暇登録 */
+  // 期間内の日ごとに工程「休暇」の予定（kind=plan）を作る。予定がすべて休暇の日は終業前入力が済になる
+  var LEAVE_TYPES = [
+    { value: 'full', label: '終日休暇', ratio: 1 },
+    { value: 'am', label: '午前休', ratio: 0.5 },
+    { value: 'pm', label: '午後休', ratio: 0.5 }
+  ];
+
+  function leaveEditor(onSaved) {
+    var admin = State.isAdmin();
+    var draft = { member: me(), from: curDate(), to: curDate(), type: 'full', skipWeekend: true, note: null };
+    var grid = U.el('div', { class: 'form-grid' });
+    var preview = U.el('div', { class: 'hint', style: { fontSize: '12.5px' } });
+    function field(label, node, span, hint) {
+      grid.appendChild(U.el('div', { class: 'field' + (span ? ' span2' : '') }, [
+        U.el('label', { text: label }), node,
+        hint ? U.el('div', { class: 'hint', text: hint }) : null
+      ]));
+    }
+    function type() { return LEAVE_TYPES.filter(function (t) { return t.value === draft.type; })[0]; }
+    function hours() { return Math.round(dayTarget() * type().ratio * 100) / 100; }
+    function dates() {
+      return seriesDates(draft.from, draft.to, draft.skipWeekend ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]);
+    }
+    /* 既に休暇を登録済みの日は除く */
+    function targets() {
+      return dates().filter(function (iso) { return !hasLeave(iso, draft.member); });
+    }
+    function paintPreview() {
+      var all = dates(), list = targets();
+      var filled = list.filter(function (iso) {
+        return plansOf(iso, draft.member, 'plan').length > 0 || plansOf(iso, draft.member, 'result').length > 0;
+      });
+      preview.textContent = !all.length ? '対象日がありません（期間を確認してください）'
+        : '対象日 ' + all.length + ' 日（' + all.slice(0, 4).map(U.fmtDate).join('・') + (all.length > 4 ? ' …' : '') + '）'
+          + ' → 「' + type().label + '」' + fmtH(hours()) + 'h を ' + list.length + ' 件登録します'
+          + (all.length > list.length ? '（休暇を登録済みの ' + (all.length - list.length) + ' 日は除く）' : '')
+          + (filled.length ? '。' + filled.map(U.fmtDate).join('・') + ' は入力済みの予定・実績があります（そのまま残ります）' : '');
+    }
+
+    var memberSel = U.el('select', {
+      disabled: !admin, onchange: function () { draft.member = this.value || null; paintPreview(); }
+    });
+    (admin ? State.members() : [draft.member]).forEach(function (m) {
+      memberSel.appendChild(U.el('option', { value: m, text: m, selected: m === draft.member }));
+    });
+    memberSel.value = draft.member || '';
+    field('担当者', memberSel, true);
+    var from = U.el('input', { type: 'date', value: draft.from });
+    var to = U.el('input', { type: 'date', value: draft.to });
+    from.addEventListener('change', function () {
+      draft.from = this.value || null;
+      // 開始日を終了日より後にしたら終了日も合わせる
+      if (draft.from && draft.to && draft.from > draft.to) { draft.to = draft.from; to.value = draft.to; }
+      paintPreview();
+    });
+    to.addEventListener('change', function () { draft.to = this.value || null; paintPreview(); });
+    field('開始日', from);
+    field('終了日', to, false, '1 日だけなら開始日と同じ日');
+    var typeSel = U.el('select', { onchange: function () { draft.type = this.value; paintPreview(); } });
+    LEAVE_TYPES.forEach(function (t) { typeSel.appendChild(U.el('option', { value: t.value, text: t.label })); });
+    field('区分', typeSel, false, '半日休は基準時間の半分（' + fmtH(dayTarget() / 2) + 'h）で登録します。残りの作業は通常どおり入力してください');
+    var weekend = U.el('input', { type: 'checkbox', checked: true });
+    weekend.addEventListener('change', function () { draft.skipWeekend = this.checked; paintPreview(); });
+    field('土日', U.el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 'normal', cursor: 'pointer' } },
+      [weekend, document.createTextNode('土日を除く')]));
+    var note = U.el('input', { type: 'text', placeholder: '例）夏季休暇' });
+    note.addEventListener('input', function () { draft.note = this.value.trim() || null; });
+    field('備考', note, true);
+    grid.appendChild(U.el('div', { class: 'field span2' }, [preview]));
+    paintPreview();
+
+    var busy = false;
+    U.openDrawer('🏖 休暇登録', grid, [
+      U.el('span', { class: 'muted', text: '終日休暇の日は終業前入力が不要（済）になります。取り消しは日次入力の休暇の行の ✕ から' }),
+      U.el('div', { class: 'spacer' }),
+      U.el('button', { class: 'btn', text: 'キャンセル', onclick: U.closeDrawer }),
+      U.el('button', {
+        class: 'btn btn-primary', text: '登録', onclick: function () {
+          if (busy) return;
+          if (!draft.member) { U.toast('担当者を選択してください', 'warn'); return; }
+          if (!draft.from || !draft.to || draft.from > draft.to) { U.toast('開始日・終了日を確認してください', 'warn'); return; }
+          if (U.diffDays(U.parseDate(draft.from), U.parseDate(draft.to)) >= SERIES_MAX_DAYS) {
+            U.toast('期間は最長 1 年です', 'warn'); return;
+          }
+          var list = targets();
+          if (!list.length) { U.toast('登録する日がありません（対象日なし、またはすべて休暇を登録済みです）', 'warn'); return; }
+          busy = true;
+          U.loading(true);
+          API.addPlan({
+            kind: 'plan', member: draft.member, status: '予定', allDay: true,
+            category: LEAVE, title: type().label, hours: hours(), note: draft.note, dates: list
+          })
+            .then(function (r) {
+              U.toast('休暇を ' + ((r && r.added) || list.length) + ' 日分登録しました', 'ok');
+              U.closeDrawer();
+              return State.reloadPlans();
+            })
+            .then(function () { onSaved && onSaved(); })
+            .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
+            .finally(function () { busy = false; U.loading(false); });
+        }
+      })
+    ]);
+  }
+
   /* 定例予定のうち、指定した記録の日以降の予定をまとめて削除する（実績は残す） */
   function deleteSeries(base, done) {
     var admin = State.isAdmin();
@@ -1215,6 +1386,7 @@
   }
 
   Views.planInput._recurring = recurringEditor;
+  Views.planInput._leave = leaveEditor;
   Views.planInput._editor = planEditor;
   Views.planInput._kindOf = kindOf;
   Views.planInput._PHASE = PHASE;
