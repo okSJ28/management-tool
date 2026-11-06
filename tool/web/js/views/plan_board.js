@@ -5,7 +5,7 @@
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var B = { start: null, span: 7, category: '', member: '', project: '', kind: '', grade: '', manager: '' };
+  var B = { start: null, span: 7, category: '', member: '', project: '', kind: '', grade: '', manager: '', gradeInit: false };
   var UNSET = '__unset__';
   var R = { from: '', to: '', dim: 'category' };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
@@ -55,6 +55,11 @@
     searchable: true,
     render: function (root) {
       if (!B.start) B.start = U.addDays(U.today(), -2);
+      // 一般ユーザーは最初に開いたとき自分の年次で絞り込む（未設定なら全員。以後は選んだ条件を保持）
+      if (!B.gradeInit) {
+        B.gradeInit = true;
+        if (!State.isAdmin()) B.grade = State.memberAttr(State.user(), 'grade');
+      }
       var days = [];
       for (var i = 0; i < B.span; i++) days.push(U.addDays(B.start, i));
       var todayIso = U.iso(U.today());
