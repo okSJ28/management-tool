@@ -130,6 +130,10 @@ class Database:
             self._local.path = self.path
         return conn
 
+    def _checkpoint(self) -> None:
+        """WAL をデータベース本体に書き戻す（.sqlite3 を単体でコピーしても欠けないように）。"""
+        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
         if conn is not None:
@@ -146,6 +150,7 @@ class Database:
                     existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
                     if column not in existing:
                         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
+            self._checkpoint()
             self._ready = True
 
     def relocate(self, path: Path) -> None:
@@ -286,11 +291,13 @@ class Database:
                 f"INSERT OR REPLACE INTO users ({', '.join(_USER_COLUMNS)}) "
                 f"VALUES ({', '.join('?' * len(_USER_COLUMNS))})",
                 [values.get(c) for c in _USER_COLUMNS])
+        self._checkpoint()
 
     def delete_user(self, user_id: str) -> None:
         self.initialize()
         with self._lock, self.conn as conn:
             conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        self._checkpoint()
 
     def get_meta(self, key: str) -> str | None:
         self.initialize()
@@ -301,6 +308,7 @@ class Database:
         self.initialize()
         with self._lock, self.conn as conn:
             conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+        self._checkpoint()
 
     @staticmethod
     def _delete_ids(conn: sqlite3.Connection, table: str, ids) -> None:

@@ -78,7 +78,18 @@ else { Step '1/5 構文チェック（省略）' }
 # ---------------------------------------------------- 2. サーバー側バックアップ
 Step '2/5 サーバー側データベースのバックアップ'
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-ssh $SshHost "mkdir -p $RemoteDir/data/db-backup && cp $RemoteDir/data/store.sqlite3 $RemoteDir/data/db-backup/store_$stamp.sqlite3 && ls -1t $RemoteDir/data/db-backup/*.sqlite3 | tail -n +11 | xargs -r rm -f"
+# cp では WAL（まだ本体に書き戻されていない変更）が抜けるため、SQLite のバックアップ機能でコピーする
+$backupPy = @"
+import sqlite3
+src = sqlite3.connect('file:$RemoteDir/data/store.sqlite3?mode=ro', uri=True)
+dst = sqlite3.connect('$RemoteDir/data/db-backup/store_$stamp.sqlite3')
+src.backup(dst)
+dst.close()
+"@
+ssh $SshHost "mkdir -p $RemoteDir/data/db-backup"
+$backupPy | ssh $SshHost python3 -
+if ($LASTEXITCODE -ne 0) { Ng 'バックアップに失敗しました'; exit 1 }
+ssh $SshHost "ls -1t $RemoteDir/data/db-backup/*.sqlite3 | tail -n +11 | xargs -r rm -f"
 if ($LASTEXITCODE -ne 0) { Ng 'バックアップに失敗しました'; exit 1 }
 Ok "store_$stamp.sqlite3 （最新10世代を保持）"
 
