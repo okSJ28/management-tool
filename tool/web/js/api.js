@@ -21,6 +21,8 @@
     'invalid-user-id': 'IDは半角英数字・ハイフン・アンダースコア（32文字以内）で入力してください。',
     'name-required': '氏名を入力してください。',
     'invalid-role': '権限の指定が不正です。',
+    'invalid-grade': '年次の指定が不正です。',
+    'invalid-manager': '担当管理者の指定が不正です。',
     'last-admin': '管理者が1人もいなくなるため、この変更はできません。',
     'cannot-delete-self': '自分自身のアカウントは削除できません。',
     'wrong-password': '現在のパスワードが正しくありません。',

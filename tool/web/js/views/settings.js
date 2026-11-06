@@ -321,9 +321,18 @@
 
   /* ---- ユーザー管理（ログインID・権限） ---- */
 
+  /* 属性（年次・担当管理者）の選択肢はマスタ。マスタから外した値も設定済みなら残して表示する */
+  function attrSelect(masterKey, value) {
+    var options = (State.masters[masterKey] || []).slice();
+    if (value && options.indexOf(value) < 0) options.push(value);
+    var sel = U.el('select', {}, [U.el('option', { value: '', text: '（未設定）' })]);
+    options.forEach(function (o) { sel.appendChild(U.el('option', { value: o, text: o, selected: value === o })); });
+    return sel;
+  }
+
   function userEditor(user, done) {
     var isNew = !user;
-    var u = Object.assign({ id: '', name: '', member: '', role: 'user' }, user || {});
+    var u = Object.assign({ id: '', name: '', member: '', role: 'user', grade: '', manager: '' }, user || {});
     var listId = 'userMemberList';
     var members = U.el('datalist', { id: listId });
     State.members().forEach(function (m) { members.appendChild(U.el('option', { value: m })); });
@@ -335,6 +344,17 @@
     ['user', 'admin', 'owner'].forEach(function (r) {
       role.appendChild(U.el('option', { value: r, text: State.roleLabel(r), selected: u.role === r }));
     });
+    var grade = attrSelect('userGrades', u.grade);
+    var manager = attrSelect('userManagers', u.manager);
+    /* 年次・担当管理者は一般・管理者のみ（特権管理者には持たせない） */
+    var attrs = U.el('div', {}, [
+      U.el('div', { class: 'field mt8' }, [U.el('label', { text: '年次' }), grade]),
+      U.el('div', { class: 'field mt8' }, [U.el('label', { text: '担当管理者' }), manager,
+        U.el('div', { class: 'hint', text: '年次・担当管理者の選択肢は、この画面の「ユーザー：年次」「ユーザー：担当管理者」で追加・削除できます。' })])
+    ]);
+    function syncAttrs() { attrs.style.display = role.value === 'owner' ? 'none' : ''; }
+    role.addEventListener('change', syncAttrs);
+    syncAttrs();
 
     var box = U.el('div', {}, [
       members,
@@ -344,7 +364,8 @@
       U.el('div', { class: 'field mt8' }, [U.el('label', { text: '担当者名' }), member,
         U.el('div', { class: 'hint', text: 'タスク・予定の担当者名と一致させてください。更新者としても記録されます。未登録ならメンバーに追加されます。' })]),
       U.el('div', { class: 'field mt8' }, [U.el('label', { text: '権限' }), role,
-        U.el('div', { class: 'hint', text: '管理者: ユーザー管理・設定の編集・バックアップ復元ができます。特権管理者: 管理者と同じ権限で、閲覧が中心の人向けです（担当者一覧・日次入力の対象に含めません）。' })])
+        U.el('div', { class: 'hint', text: '管理者: ユーザー管理・設定の編集・バックアップ復元ができます。特権管理者: 管理者と同じ権限で、閲覧が中心の人向けです（担当者一覧・日次入力の対象に含めません）。' })]),
+      attrs
     ]);
 
     U.openDrawer(isNew ? 'ユーザー追加' : 'ユーザー編集', box, [
@@ -352,7 +373,9 @@
       U.el('button', { class: 'btn', text: 'キャンセル', onclick: U.closeDrawer }),
       U.el('button', {
         class: 'btn btn-primary', text: isNew ? '追加' : '保存', onclick: function () {
-          var payload = { name: name.value.trim(), member: member.value.trim(), role: role.value };
+          var owner = role.value === 'owner';
+          var payload = { name: name.value.trim(), member: member.value.trim(), role: role.value,
+            grade: owner ? '' : grade.value, manager: owner ? '' : manager.value };
           if (!payload.name) { U.toast('氏名を入力してください', 'warn'); return; }
           var call;
           if (isNew) {
@@ -427,7 +450,7 @@
       U.clear(body);
       sub.textContent = users.length + '名（管理者 ' + users.filter(function (u) { return u.role === 'admin' || u.role === 'owner'; }).length + '名）';
       var tbl = U.el('table', { class: 'grid-table' });
-      tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['ID', '氏名', '担当者名', '権限', '操作'].map(function (h) {
+      tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['ID', '氏名', '担当者名', '権限', '年次', '担当管理者', '操作'].map(function (h) {
         return U.el('th', { text: h });
       }))]));
       var tb = U.el('tbody');
@@ -437,6 +460,8 @@
           U.el('td', { class: 'strong', text: u.name }),
           U.el('td', { text: u.member || '—' }),
           U.el('td', {}, [U.el('span', { class: 'tag' + (u.role === 'admin' || u.role === 'owner' ? ' role-admin' : ''), text: State.roleLabel(u.role) })]),
+          U.el('td', { text: u.grade || '—' }),
+          U.el('td', { text: u.manager || '—' }),
           rowActions(u)
         ]));
       });
@@ -470,6 +495,10 @@
     render: function (root) {
       trackers = [];
       root.appendChild(userManager());
+      root.appendChild(U.el('div', { class: 'grid k2 mt16' }, [
+        listEditor('userGrades', 'ユーザー：年次'),
+        listEditor('userManagers', 'ユーザー：担当管理者')
+      ]));
 
       /* --- 計算パラメータ --- */
       var settings = Object.assign({}, State.settings());

@@ -75,7 +75,9 @@ CREATE TABLE IF NOT EXISTS users (
     role       TEXT NOT NULL,
     password   TEXT NOT NULL,
     created_at TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    grade      TEXT,
+    manager    TEXT
 );
 """
 
@@ -85,10 +87,11 @@ _TASK_COLUMNS = ("id", "seq", "type", "program_id", "project", "assignee1",
 _PLAN_COLUMNS = ("id", "seq", "kind", "member", "project", "date", "end_date",
                  "created_at", "updated_at", "payload")
 _USER_COLUMNS = ("id", "seq", "name", "member", "role", "password",
-                 "created_at", "updated_at")
+                 "created_at", "updated_at", "grade", "manager")
 
 # Columns added after the first release: (table, column, type).
-_ADDED_COLUMNS = (("plans", "kind", "TEXT"),)
+_ADDED_COLUMNS = (("plans", "kind", "TEXT"),
+                  ("users", "grade", "TEXT"), ("users", "manager", "TEXT"))
 
 # SQLite の変数上限(999)に収まるバッチサイズ
 _CHUNK = 400

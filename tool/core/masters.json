@@ -61,6 +61,8 @@
     { "code": "A000000005", "name": "製造" },
     { "code": "D000000002", "name": "チャレンジ時間" }
   ],
+  "userGrades": ["1年目", "2年目", "3年目", "4年目以上"],
+  "userManagers": ["大場", "大前", "伊藤高"],
   "settings": {
     "baseCoef": 0.06,
     "newCoef": 1,

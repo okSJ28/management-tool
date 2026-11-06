@@ -27,6 +27,9 @@ COOKIE = "dpm_session"
 # owner = 特権管理者: 管理者と同じ権限を持ち、担当者（日次入力などの入力対象）には含めない
 ROLES = ("owner", "admin", "user")
 ADMIN_ROLES = ("owner", "admin")
+# 一般・管理者の属性（特権管理者には持たせない）。選択肢はマスタ、空欄は未設定
+ATTRIBUTES = (("grade", "userGrades", "invalid-grade"),
+              ("manager", "userManagers", "invalid-manager"))
 MIN_PASSWORD = 4
 
 _SEED_PATH = Path(__file__).with_name("users.json")
@@ -84,6 +87,7 @@ def ensure_ready() -> None:
                 DB.save_user({
                     "id": raw["id"], "name": raw.get("name") or raw["id"],
                     "member": raw.get("member") or "", "role": raw.get("role") or "user",
+                    "grade": raw.get("grade") or "", "manager": raw.get("manager") or "",
                     "password": hash_password(raw["id"]),
                     "created_at": now, "updated_at": now,
                 })
@@ -95,6 +99,7 @@ def ensure_ready() -> None:
 def _public(row: dict[str, Any]) -> dict[str, Any]:
     return {"id": row["id"], "name": row.get("name") or row["id"],
             "member": row.get("member") or "", "role": row.get("role") or "user",
+            "grade": row.get("grade") or "", "manager": row.get("manager") or "",
             "createdAt": row.get("created_at"), "updatedAt": row.get("updated_at")}
 
 
@@ -180,7 +185,15 @@ def _clean(payload: dict, current: dict | None = None) -> dict[str, Any]:
         raise AccountError("name-required")
     if role not in ROLES:
         raise AccountError("invalid-role")
-    return {"name": name[:40], "member": member[:40] or name.split()[0][:40], "role": role}
+    fields = {"name": name[:40], "member": member[:40] or name.split()[0][:40], "role": role}
+    masters = STORE.load()["masters"]
+    for field, master_key, code in ATTRIBUTES:
+        value = "" if role == "owner" else str(payload.get(field, base.get(field)) or "")
+        # マスタから外した値は、設定済みのユーザーにはそのまま残す（新たには選べない）
+        if value and value != base.get(field) and value not in (masters.get(master_key) or []):
+            raise AccountError(code)
+        fields[field] = value
+    return fields
 
 
 def create_user(payload: dict) -> dict[str, Any]:
