@@ -59,14 +59,11 @@ a { color: var(--primary); }
   flex-direction: column;
   transition: width .18s ease, flex-basis .18s ease;
 }
-.app.collapsed .sidebar { width: 62px; flex-basis: 62px; }
-.app.collapsed .brand-text,
-.app.collapsed .nav-item span,
-.app.collapsed .nav-group-title,
-.app.collapsed .sync { display: none; }
-.app.collapsed .nav-item { justify-content: center; }
-.app.collapsed #btnCollapse { font-size: 0; }
-.app.collapsed #btnCollapse::before { content: "››"; font-size: 13px; }
+/* 隠す途中で中身が折り返さないよう、中身は常にメニュー幅で描く */
+.sidebar > * { min-width: var(--sidebar-w); }
+@media (min-width: 901px) {
+  .app.nav-hidden .sidebar { width: 0; flex-basis: 0; overflow: hidden; }
+}
 
 .brand { display: flex; align-items: center; gap: 10px; padding: 16px 14px; }
 .brand-mark {
@@ -88,8 +85,6 @@ a { color: var(--primary); }
 .app-tab i { font-style: normal; font-size: 15px; }
 .app-tab:hover { background: rgba(255,255,255,.12); color: #fff; }
 .app-tab.on { background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; border-color: transparent; }
-.app.collapsed .app-switch { flex-direction: column; }
-.app.collapsed .app-tab span { display: none; }
 
 .nav { flex: 1; overflow-y: auto; padding: 6px 8px 16px; }
 .nav-group-title { font-size: 10px; letter-spacing: .12em; color: #62718c; padding: 14px 10px 6px; text-transform: uppercase; }
@@ -125,7 +120,6 @@ a { color: var(--primary); }
 .search-ico { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; opacity: .55; }
 
 .view { flex: 1; overflow: auto; padding: 18px 20px 60px; }
-.only-mobile { display: none; }
 
 /* ---------------------------------------------------- buttons */
 .btn {
@@ -400,7 +394,6 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 @media (max-width: 900px) {
   .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 30; transform: translateX(-100%); transition: transform .18s; }
   .app.menu-open .sidebar { transform: none; }
-  .only-mobile { display: grid; }
   .search-box input { width: 160px; }
 }
 @media print {

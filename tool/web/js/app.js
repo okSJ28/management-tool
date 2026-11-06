@@ -297,16 +297,29 @@
     }
   }
 
+  /* 左のメニュー: 狭い画面では重ねて開閉、それ以外は隠す／出す（状態はブラウザに記憶） */
+  var NARROW = '(max-width: 900px)';
+  function setNavHidden(hidden) {
+    document.getElementById('app').classList.toggle('nav-hidden', hidden);
+    try { localStorage.setItem('dpm.navHidden', hidden ? '1' : '0'); } catch (e) { /* ignore */ }
+    // ガント・グラフなど幅に合わせて描く画面を、メニューの開閉後の幅で描き直す
+    setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 220);
+  }
+
   var bound = false;
   function bindGlobal() {
     if (bound) return;
     bound = true;
     document.getElementById('userBadge').addEventListener('click', openAccount);
+    var app = document.getElementById('app');
+    try { app.classList.toggle('nav-hidden', localStorage.getItem('dpm.navHidden') === '1'); } catch (e) { /* ignore */ }
     document.getElementById('btnCollapse').addEventListener('click', function () {
-      document.getElementById('app').classList.toggle('collapsed');
+      if (window.matchMedia(NARROW).matches) app.classList.remove('menu-open');
+      else setNavHidden(true);
     });
     document.getElementById('btnMenu').addEventListener('click', function () {
-      document.getElementById('app').classList.toggle('menu-open');
+      if (window.matchMedia(NARROW).matches) app.classList.toggle('menu-open');
+      else setNavHidden(!app.classList.contains('nav-hidden'));
     });
     var search = document.getElementById('globalSearch');
     search.addEventListener('input', U.debounce(function () {
