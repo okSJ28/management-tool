@@ -5,7 +5,8 @@
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var B = { start: null, span: 7, category: '', member: '', project: '', kind: '' };
+  var B = { start: null, span: 7, category: '', member: '', project: '', kind: '', grade: '', manager: '' };
+  var UNSET = '__unset__';
   var R = { from: '', to: '', dim: 'category' };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -28,6 +29,20 @@
         if (hay.indexOf(State.search.toLowerCase()) < 0) return false;
       }
       return true;
+    });
+  }
+
+  /* 年次・担当管理者での絞り込み（担当管理者は管理者のみ）。属性が未設定の担当者は UNSET で選ぶ */
+  var ATTRS = [
+    { key: 'grade', label: '年次', master: 'userGrades' },
+    { key: 'manager', label: '担当管理者', master: 'userManagers', adminOnly: true }
+  ];
+  function attrFilters() {
+    return ATTRS.filter(function (a) { return !a.adminOnly || State.isAdmin(); });
+  }
+  function attrMatch(m) {
+    return attrFilters().every(function (a) {
+      return !B[a.key] || (State.memberAttr(m, a.key) || UNSET) === B[a.key];
     });
   }
 
@@ -63,7 +78,21 @@
         options.forEach(function (o) { s.appendChild(U.el('option', { value: o, text: o, selected: B[key] === o })); });
         bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
       }
-      sel('担当者', 'member', State.members());
+      attrFilters().forEach(function (a) {
+        // マスタから外した値も、設定済みの担当者がいれば選べるようにする
+        var values = (State.masters[a.master] || []).slice();
+        Object.keys(State.memberAttrs || {}).forEach(function (m) {
+          var v = State.memberAttr(m, a.key);
+          if (v && values.indexOf(v) < 0) values.push(v);
+        });
+        var s = U.el('select', { onchange: function () { B[a.key] = this.value; App.render(); } });
+        [['', '(すべて)']].concat(values.map(function (v) { return [v, v]; }), [[UNSET, '（未設定）']])
+          .forEach(function (o) { s.appendChild(U.el('option', { value: o[0], text: o[1], selected: B[a.key] === o[0] })); });
+        bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: a.label }), s]));
+      });
+      var candidates = State.members().filter(attrMatch);
+      if (B.member && candidates.indexOf(B.member) < 0) B.member = '';
+      sel('担当者', 'member', candidates);
       sel('工程（作業区分）', 'category', (State.masters.planCategories || []).map(function (c) { return c.value; }));
       sel('案件', 'project', State.projects());
       bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: '種別' }),
@@ -85,9 +114,11 @@
       bar.appendChild(U.el('button', { class: 'btn btn-sm', text: '⬇ CSV出力', onclick: exportPlans }));
       root.appendChild(bar);
 
-      var members = State.members().filter(function (m) { return !B.member || m === B.member; });
+      var members = candidates.filter(function (m) { return !B.member || m === B.member; });
       if (!members.length) {
-        root.appendChild(U.el('div', { class: 'empty', html: '<span class="big">🗓</span>メンバーが登録されていません' }));
+        var filtered = attrFilters().some(function (a) { return B[a.key]; });
+        root.appendChild(U.el('div', { class: 'empty', html: '<span class="big">🗓</span>'
+          + (filtered ? '条件に該当する担当者がいません' : 'メンバーが登録されていません') }));
         return;
       }
 

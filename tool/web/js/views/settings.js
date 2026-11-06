@@ -388,6 +388,10 @@
           U.loading(true);
           call.then(function (r) {
             if (r.masters) State.masters = r.masters;
+            /* チーム予定ボードの年次・担当管理者の絞り込みに再読込なしで反映する */
+            if (u.member && u.member !== r.user.member) delete State.memberAttrs[u.member];
+            if (r.user.role === 'owner') delete State.memberAttrs[r.user.member];
+            else State.memberAttrs[r.user.member] = { grade: r.user.grade, manager: r.user.manager };
             if (State.account && r.user.id === State.account.id) {
               // 自分の権限を外した場合は設定画面を開けなくなるので開き直す
               if (r.user.role !== State.account.role) { location.reload(); return; }

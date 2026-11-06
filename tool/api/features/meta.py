@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core import excel_io, model
+from core import auth, excel_io, model
 from core.config import CONFIG
 from core.storage import STORE
 
@@ -23,6 +23,7 @@ def bootstrap(req: Request) -> Response:
     STORE.recompute_all()
     return json_response({
         "account": req.account,
+        "memberAttrs": auth.member_attributes(req.account),
         "schema": model.SCHEMA,
         "enums": model.ENUMS,
         "masters": data["masters"],

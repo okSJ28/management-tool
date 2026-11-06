@@ -170,6 +170,20 @@ def authenticate(user_id: str, password: str) -> dict[str, Any] | None:
     return _public(row)
 
 
+def member_attributes(viewer: dict[str, Any] | None) -> dict[str, dict[str, str]]:
+    """担当者名 → 属性。画面の絞り込み用で、担当管理者は管理者（特権管理者を含む）にだけ渡す。"""
+    ensure_ready()
+    show_manager = is_admin(viewer)
+    attrs: dict[str, dict[str, str]] = {}
+    for row in DB.read_users():
+        if row.get("role") == "owner" or not row.get("member"):
+            continue
+        attrs[row["member"]] = {"grade": row.get("grade") or ""}
+        if show_manager:
+            attrs[row["member"]]["manager"] = row.get("manager") or ""
+    return attrs
+
+
 # ---------------------------------------------------------- management
 def list_users() -> list[dict[str, Any]]:
     ensure_ready()

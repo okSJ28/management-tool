@@ -114,11 +114,12 @@
   var State = {
     schema: null, enums: null, masters: null, tasks: [], plans: [], entries: {}, savedViews: [],
     folder: '', hasExcel: true, search: '', readOnly: false, shared: false,
-    dataDir: '', database: '', backupKeep: 30, account: null,
+    dataDir: '', database: '', backupKeep: 30, account: null, memberAttrs: {},
     fieldMap: {}, typeMap: {},
 
     init: function (data) {
       this.account = data.account || null;
+      this.memberAttrs = data.memberAttrs || {};
       this.schema = data.schema;
       this.enums = data.enums;
       this.masters = data.masters;
@@ -157,6 +158,8 @@
     isAdmin: function () { return !!(this.account && (this.account.role === 'admin' || this.account.role === 'owner')); },
     /* 業務予定・日次入力を登録・変更できる担当者か（一般ユーザーは自分の分のみ） */
     canEdit: function (member) { return this.isAdmin() || (!!member && member === this.user()); },
+    /* 担当者の属性（grade = 年次、manager = 担当管理者。担当管理者は管理者にだけ届く） */
+    memberAttr: function (member, key) { return ((this.memberAttrs || {})[member] || {})[key] || ''; },
     roleLabel: function (role) { return { owner: '特権管理者', admin: '管理者', user: '一般' }[role] || role; },
 
     field: function (key) { return this.fieldMap[key] || { key: key, label: key, type: 'text', types: [] }; },
