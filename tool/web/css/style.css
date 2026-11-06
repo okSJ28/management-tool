@@ -147,6 +147,8 @@ a { color: var(--primary); }
 /* ---------------------------------------------------- cards */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
 .card + .card { margin-top: 14px; }
+/* 横に並べたカードの間隔は grid の gap に任せる（上の余白で 2 枚目以降が下にずれないように） */
+.grid > .card + .card { margin-top: 0; }
 .card-head {
   display: flex; align-items: center; gap: 10px; padding: 12px 16px;
   border-bottom: 1px solid var(--border);
