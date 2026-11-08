@@ -188,16 +188,29 @@
     return !P.dirty || global.confirm('保存していない変更があります。破棄して切り替えますか？');
   }
 
-  var dlReady = false;
+  var dlReady = false, dlMember = null;
 
-  function projectDatalist() {
-    if (dlReady && document.getElementById('dl_plan_project')) return 'dl_plan_project';
+  /* 案件名の候補。その担当者が自分の予定・実績で使った案件を新しい順に先頭に出し、残りは従来どおり */
+  function projectDatalist(member) {
+    member = member || me();
+    if (dlReady && dlMember === member && document.getElementById('dl_plan_project')) return 'dl_plan_project';
     var dl = document.getElementById('dl_plan_project');
     if (dl) dl.remove();
     dl = U.el('datalist', { id: 'dl_plan_project' });
-    State.projects().forEach(function (p) { dl.appendChild(U.el('option', { value: p })); });
+    var mine = U.uniq((State.plans || []).filter(function (p) { return p.member === member && p.project; })
+      .sort(function (a, b) {
+        var ka = (a.date || '') + (a.updatedAt || ''), kb = (b.date || '') + (b.updatedAt || '');
+        return ka < kb ? 1 : ka > kb ? -1 : 0;
+      })
+      .map(function (p) { return p.project; }));
+    var label = member === State.user() ? '自分の予定で使用' : member + ' の予定で使用';
+    mine.forEach(function (p) { dl.appendChild(U.el('option', { value: p, label: label })); });
+    State.projects().forEach(function (p) {
+      if (mine.indexOf(p) < 0) dl.appendChild(U.el('option', { value: p }));
+    });
     document.body.appendChild(dl);
     dlReady = true;
+    dlMember = member;
     return 'dl_plan_project';
   }
 
@@ -294,7 +307,7 @@
       U.el('th', {})
     ]);
     var g2 = U.el('tr', {}, [
-      ['工程（作業区分）', 104], ['案件名', 110], ['作業内容', null], ['取組み予定', 120],
+      ['工程（作業区分）', 104], ['案件名', 260], ['作業内容', null], ['取組み予定', 120],
       ['予定(h)', 80, 'pi-am'], ['実績(h)', 80, 'pi-pm'], ['差', 50], ['進捗率', 192], ['状況', 92], ['', 34]
     ].map(function (c) {
       return U.el('th', { class: c[2] || null, style: c[1] ? { width: c[1] + 'px' } : null, text: c[0] });
@@ -406,8 +419,8 @@
     tr.appendChild(first);
 
     /* 案件名 */
-    var proj = U.el('input', { type: 'text', value: r.f.project || '', list: projectDatalist() });
-    proj.addEventListener('input', function () { r.f.project = this.value || null; touch(r, true); refresh(); });
+    var proj = U.el('input', { type: 'text', value: r.f.project || '', list: projectDatalist(), title: r.f.project || '' });
+    proj.addEventListener('input', function () { r.f.project = this.value || null; this.title = this.value; touch(r, true); refresh(); });
     tr.appendChild(U.el('td', {}, [proj]));
 
     /* 作業内容 ＋ PJCD / 作業コード */
@@ -1011,8 +1024,10 @@
     field('ステータス', select(State.masters.planStatuses || [], 'status', 'value'));
     field('進捗率(%)', input({ type: 'number', step: '10', min: '0', max: '100', value: draft.progress === null || draft.progress === undefined ? '' : draft.progress }, 'progress', U.num));
 
-    var projectInput = U.el('input', { type: 'text', value: draft.project || '', list: projectDatalist() });
+    var projectInput = U.el('input', { type: 'text', value: draft.project || '', list: projectDatalist(draft.member) });
     projectInput.addEventListener('input', function () { draft.project = this.value || null; });
+    // 担当者を変えたら、その担当者が使った案件を先頭にした候補に切り替える
+    memberSel.addEventListener('change', function () { projectInput.setAttribute('list', projectDatalist(draft.member)); });
     field('案件名', projectInput, true);
 
     var linkSel = U.el('select', { style: { width: '100%' } });
@@ -1203,7 +1218,7 @@
     var hours = U.el('input', { type: 'number', step: '0.25', min: '0', max: String(DAY_HOURS), placeholder: '例）0.5' });
     hours.addEventListener('input', function () { draft.hours = U.num(this.value); });
     field('予定工数(h)', hours, false, '1回あたりの時間（30分なら 0.5）');
-    field('案件名', text('project', { list: projectDatalist() }), true);
+    field('案件名', text('project', { list: projectDatalist(State.user()) }), true);
     field('作業内容', text('title', { placeholder: '例）課会' }), true);
     field('PJCD', codeField('projectCodes', 'projectCode'));
     field('作業コード', codeField('workCodes', 'workCode'));

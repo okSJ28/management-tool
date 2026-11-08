@@ -406,7 +406,7 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 /* ---------------------------------------------------- 日次入力（予実一体シート） */
 .pi-card { position: relative; }
 .pi-wrap { overflow-x: auto; }
-.pi-table { min-width: 1000px; }
+.pi-table { min-width: 1150px; }
 .pi-table thead th { cursor: default; }
 .pi-table thead tr.pi-group th { text-align: center; font-size: 11.5px; padding: 5px 9px; border-bottom: 1px solid var(--border); }
 .pi-table thead tr + tr th { top: 27px; }
