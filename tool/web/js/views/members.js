@@ -98,7 +98,7 @@
         var result = p.kind === 'result';
         var tail = result
           ? (p.progress === null || p.progress === undefined ? '' : ' ' + p.progress + '%')
-          : (p.hours ? ' ' + U.fmtH(p.hours) + 'h' : '');
+          : (p.hours ? ' ' + U.fmtH(p.hours) + 'h' : '') + (p.status === '中止' ? ' 未実施' : '');
         return U.el('span', {
           class: 'chip', style: {
             background: result ? 'transparent' : c + '1f', color: c, cursor: 'pointer',

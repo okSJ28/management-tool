@@ -159,8 +159,11 @@
       function planCard(p) {
         var color = State.planColor(p.category);
         var result = isResult(p);
+        // 予定していたがやらなかった（日次入力で未実施にした）予定は薄く「未実施」と表示する
+        var skipped = !result && p.status === '中止';
         return U.el('div', {
           style: {
+            opacity: skipped ? '0.55' : null,
             background: result ? 'transparent' : color + '1c',
             border: result ? '1px dashed ' + color : null,
             borderLeft: '3px solid ' + color, borderRadius: '4px',
@@ -168,7 +171,7 @@
           },
           title: (result ? '実績' : '予定') + ' / ' + (p.category || '') + ' ' + (p.title || '') + '\n' + (p.project || '')
             + '\n' + (result ? '実績 ' + (p.actualHours || 0) + 'h 進捗 ' + (p.progress === null || p.progress === undefined ? '-' : p.progress + '%')
-              : '予定 ' + (p.hours || 0) + 'h') + (p.seriesId ? '\n🔁 定例予定' : ''),
+              : '予定 ' + (p.hours || 0) + 'h' + (skipped ? '（未実施）' : '')) + (p.seriesId ? '\n🔁 定例予定' : ''),
           onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
         }, [
           U.el('div', { class: 'strong', style: { color: color }, text: (p.seriesId ? '🔁 ' : '') + (p.category || '—') }),
@@ -178,7 +181,8 @@
               ? (p.actualHours ? U.fmtH(p.actualHours) + 'h' : '')
               : (p.hours ? U.fmtH(p.hours) + 'h' : '')),
             result && p.progress !== null && p.progress !== undefined
-              ? U.el('span', { class: 'strong', style: { marginLeft: '4px', color: color }, text: p.progress + '%' }) : null
+              ? U.el('span', { class: 'strong', style: { marginLeft: '4px', color: color }, text: p.progress + '%' }) : null,
+            skipped ? U.el('span', { class: 'strong', style: { marginLeft: '4px', color: 'var(--danger)' }, text: '未実施' }) : null
           ])
         ]);
       }

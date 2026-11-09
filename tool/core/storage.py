@@ -23,6 +23,8 @@ DB = Database(CONFIG.db_path)
 _LOCK = threading.RLock()
 # meta key recording that plan-only projects were removed from the 案件名 master
 _PLAN_PROJECTS_MIGRATION = "planProjectsRemovedAt"
+# meta key recording that 0h results / 0h plans were converted to 未実施 / 予定外
+_PLAN_NOT_DONE_MIGRATION = "planNotDoneMigratedAt"
 
 
 class ConflictError(Exception):
@@ -127,6 +129,7 @@ class Store:
             self._data = base
             self._pending = _empty_pending()
             self._migrate_plan_projects()
+            self._migrate_not_done()
             return base
 
     def _migrate_plan_projects(self) -> None:
@@ -148,6 +151,37 @@ class Store:
             self._pending["masters"] = True
             self.save()
         DB.set_meta(_PLAN_PROJECTS_MIGRATION, _now())
+
+    def _migrate_not_done(self) -> None:
+        """One-off: 予定でやらなかった作業・突発作業の記録を、日次入力の現在の保存形式にそろえる。
+
+        - 予定に対応する実績で、実績 0h（または実績h 空欄で進捗 0%）のもの → 実績を消し、予定の状況を「中止」（＝未実施）にする。進捗率は予定に移す
+        - 予定(h) が空欄・0 の予定（休暇を除く）に実績 0h 超が対応しているもの → 予定を消し、実績を予定外にする
+        """
+        if DB.get_meta(_PLAN_NOT_DONE_MIGRATION):
+            return
+        plans = self._data.get("plans", [])
+        by_id = {p.get("id"): p for p in plans}
+        drop: set = set()
+        for r in plans:
+            src = by_id.get(r.get("sourceId"))
+            if r.get("kind") != "result" or not src or src.get("kind") not in (None, "", "plan"):
+                continue
+            hours, progress = r.get("actualHours"), r.get("progress")
+            if hours == 0 or (hours is None and progress == 0):
+                drop.add(r["id"])
+                src["status"] = "中止"
+                src["progress"] = progress  # 進捗率（作業全体の進み具合）は予定に残す
+                self._mark_plan(src)
+            elif not src.get("hours") and src.get("category") != "休暇" and (hours or 0) > 0:
+                drop.add(src["id"])
+                r["sourceId"] = None
+                self._mark_plan(r)
+        if drop:
+            self._data["plans"] = [p for p in plans if p.get("id") not in drop]
+            self._mark_plan_deleted(drop)
+            self.save()
+        DB.set_meta(_PLAN_NOT_DONE_MIGRATION, _now())
 
     def save(self) -> None:
         with _LOCK:

@@ -423,6 +423,8 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .pi-table td input:focus, .pi-table td select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
 .pi-table td input.num { text-align: right; font-family: var(--mono); font-size: 11.5px; padding-left: 4px; padding-right: 4px; }
 .pi-table td input.pi-actual::placeholder { color: #a5b4fc; }
+.pi-table td input.pi-notdone::placeholder { color: var(--danger); font-weight: 700; }
+.pi-table tr.pi-unplanned td.pi-am { background: #f1f5f9; }
 .pi-table select.pi-cat { font-weight: 700; }
 .pi-table .pi-need { border-color: var(--danger) !important; background: #fff5f5; }
 .pi-table tr.pi-extra td.pi-first { background: #fafaff; }

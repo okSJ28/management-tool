@@ -25,6 +25,8 @@
   var PROGRESS_STEPS = [0, 25, 50, 75, 100];
   var SHARED = ['category', 'project', 'title', 'assignmentId', 'projectCode', 'workCode', 'programId', 'taskId'];
   var LEAVE = '休暇';
+  /* やらなかった予定に付ける状況（実績は作らない） */
+  var NOT_DONE = '中止';
 
   function kindOf(p) {
     return p && (p.kind === 'result' || p.kind === 'assignment') ? p.kind : 'plan';
@@ -51,8 +53,12 @@
     var list = plansOf(iso, member, 'plan');
     return list.length > 0 && list.every(function (p) { return p.category === LEAVE; }) && leaveCovers(list);
   }
+  /* 終業前の入力済み: 実績がある、予定を「未実施」にした、または終日休暇 */
+  function notDonePlans(iso, member) {
+    return plansOf(iso, member, 'plan').filter(function (p) { return p.status === NOT_DONE; });
+  }
   function resultDone(iso, member) {
-    return plansOf(iso, member, 'result').length > 0 || isLeaveDay(iso, member);
+    return plansOf(iso, member, 'result').length > 0 || notDonePlans(iso, member).length > 0 || isLeaveDay(iso, member);
   }
   function hasLeave(iso, member) {
     return plansOf(iso, member, 'plan').some(function (p) { return p.category === LEAVE; });
@@ -99,12 +105,14 @@
     var src = result || plan || {};
     var f = {};
     SHARED.forEach(function (k) { f[k] = src[k] === undefined ? null : src[k]; });
+    // 未実施にした予定は、実績の代わりに予定に残した進捗率と状況「中止」を表示する
+    var skipped = !!plan && !result && plan.status === NOT_DONE;
     return {
       plan: plan, result: result, hasPlan: !!plan || !result, f: f,
       hours: plan ? plan.hours : null,
       actualHours: result ? result.actualHours : null,
-      progress: result ? result.progress : null,
-      status: (result && result.status) || '実施中',
+      progress: result ? result.progress : (skipped && plan.progress !== undefined ? plan.progress : null),
+      status: (result && result.status) || (skipped ? NOT_DONE : '実施中'),
       dirty: false, fieldsEdited: false, codesOpen: false
     };
   }
@@ -139,8 +147,22 @@
 
   /* 実績h・進捗率のどちらかが入っていれば実績ありとする（両方消すと実績の取消し） */
   function hasResult(r) { return r.actualHours !== null || r.progress !== null; }
-  /* 実績h が空なら予定h をそのまま実績とみなす */
-  function effActual(r) { return r.actualHours !== null ? r.actualHours : (r.hasPlan ? r.hours : null); }
+  /* 予定していたがやらなかった作業（実績 0h、または実績h 空欄で進捗 0%・状況「中止」）。
+     実績は作らず、予定の状況を「中止」にして「未実施」と表示する（進捗率は予定に残す） */
+  function notDone(r) {
+    if (!r.hasPlan) return false;
+    if (r.actualHours !== null) return r.actualHours === 0;
+    return r.progress === 0 || r.status === NOT_DONE;
+  }
+  /* 予定(h) が空欄・0 の予定行に実績を入れたもの。突発作業として予定外（実績のみ）で保存する */
+  function unplannedWork(r) { return r.hasPlan && !(r.hours > 0) && hasResult(r) && !notDone(r); }
+  /* 実績として数える行（未実施は除く） */
+  function countsAsResult(r) { return hasResult(r) && !notDone(r); }
+  /* 実績h が空なら予定h をそのまま実績とみなす。未実施は 0 */
+  function effActual(r) {
+    if (notDone(r)) return 0;
+    return r.actualHours !== null ? r.actualHours : (r.hasPlan ? r.hours : null);
+  }
 
   /* 1日の工数として妥当か（空欄は可）。サーバー側でも同じ範囲で検証する */
   var DAY_HOURS = 24;
@@ -253,7 +275,7 @@
       var live = P.rows.filter(function (r) { return !isBlank(r); })
         .concat(P.leaves.map(function (p) { return makeRow(p, null); }));
       var planned = U.sum(live.filter(function (r) { return r.hasPlan; }), function (r) { return r.hours; });
-      var done = live.filter(hasResult);
+      var done = live.filter(countsAsResult);
       var actual = U.sum(done, effActual);
       var target = dayTarget();
       var avg = U.avg(done, function (r) { return r.progress; });
@@ -476,12 +498,19 @@
 
     /* ☀ 予定(h) */
     var diffTd = U.el('td', { class: 'num' });
+    var actual;
     function paintDiff() {
       var d = diffCell(hasResult(r) && r.hasPlan ? effActual(r) : null, r.hours);
       diffTd.className = d.className;
       diffTd.textContent = d.textContent;
+      // やらなかった予定は「未実施」、予定(h) 空欄で実績を入れた行は予定外として保存することを示す
+      if (actual) {
+        actual.placeholder = notDone(r) ? '未実施' : (r.hasPlan && r.hours !== null ? String(r.hours) : '');
+        actual.classList.toggle('pi-notdone', notDone(r));
+      }
+      tr.classList.toggle('pi-unplanned', unplannedWork(r));
+      tr.title = unplannedWork(r) ? '予定(h) が空欄のため、保存すると予定外（突発作業）の実績になります' : '';
     }
-    var actual;
     if (r.hasPlan) {
       var planH = numInput(r.hours, { step: '0.5', max: String(DAY_HOURS) });
       planH.addEventListener('input', function () {
@@ -498,7 +527,7 @@
     actual = numInput(r.actualHours, {
       step: '0.5', max: String(DAY_HOURS), class: 'num pi-actual',
       placeholder: r.hasPlan && r.hours !== null ? String(r.hours) : '',
-      title: '空欄のまま進捗率を入れると、予定(h) と同じ時間で登録します'
+      title: '空欄のまま進捗率を入れると、予定(h) と同じ時間で登録します。0h・0%・状況「中止」は未実施（実績にしない）'
     });
     actual.addEventListener('input', function () { r.actualHours = U.num(this.value); touch(r); paintDiff(); paintProgress(); refresh(); dim(); });
     tr.appendChild(U.el('td', { class: 'pi-pm' }, [actual]));
@@ -537,7 +566,7 @@
       onchange: function () {
         r.status = this.value || null;
         if (r.status === '完了' && r.progress === null) { setProgress(100); return; }
-        touch(r); refresh();
+        touch(r); paintDiff(); refresh();
       }
     });
     (State.masters.planStatuses || []).forEach(function (s) {
@@ -547,7 +576,7 @@
     var stTd = U.el('td', {}, [st]);
     tr.appendChild(stTd);
     // 実績が未入力の行は状況を薄く表示する
-    function dim() { stTd.classList.toggle('pi-dim', !hasResult(r)); }
+    function dim() { stTd.classList.toggle('pi-dim', !hasResult(r) && !notDone(r)); }
     dim();
     paintProgress();
 
@@ -610,7 +639,10 @@
     if (rows.some(function (r) { return !r.hasPlan && !hasResult(r); })) {
       U.toast('予定外の作業には実績(h)と進捗率(%)を入力してください', 'warn'); return;
     }
-    if (rows.some(function (r) { return hasResult(r) && r.progress === null; })) {
+    if (rows.some(function (r) { return unplannedWork(r) && !(r.actualHours > 0); })) {
+      U.toast('予定(h) が空欄の作業は予定外（突発作業）として保存します。実績(h) を入力してください', 'warn'); return;
+    }
+    if (rows.some(function (r) { return countsAsResult(r) && r.progress === null; })) {
       U.toast('実績を入力した作業には進捗率(%)を入力してください', 'warn'); return;
     }
 
@@ -648,21 +680,28 @@
         if (!rec || r.fieldsEdited) SHARED.forEach(function (k) { out[k] = r.f[k]; });
         return out;
       }
+      // 予定(h) が空欄の予定行に実績を入れたもの（突発作業）は、予定を作らず予定外の実績にする
+      var unplanned = unplannedWork(r);
+      if (unplanned && r.plan) toDelete.push(r.plan.id);
       var planId = null;
-      if (r.hasPlan) {
+      if (r.hasPlan && !unplanned) {
         planId = (r.plan && r.plan.id) || newId();
+        var prevStatus = r.plan && r.plan.status !== NOT_DONE ? r.plan.status : null;
         payload.push(Object.assign({ status: '予定' }, r.plan || {}, shared(r.plan), {
-          id: planId, kind: 'plan', hours: r.hours
+          id: planId, kind: 'plan', hours: r.hours,
+          // やらなかった予定は状況を「中止」にし（＝未実施）、実績は作らない。進捗率は予定に残す
+          status: notDone(r) ? NOT_DONE : (prevStatus || '予定'),
+          progress: notDone(r) ? r.progress : null
         }));
       }
-      if (hasResult(r)) {
+      if (countsAsResult(r)) {
         payload.push(Object.assign({}, r.result || {}, shared(r.result), {
           id: (r.result && r.result.id) || newId(), kind: 'result',
           actualHours: effActual(r), progress: r.progress, status: r.status || '実施中',
-          sourceId: planId || (r.result && r.result.sourceId) || null
-        }));
+          sourceId: unplanned ? null : (planId || (r.result && r.result.sourceId) || null)
+        }, unplanned ? SHARED.reduce(function (o, k) { o[k] = r.f[k]; return o; }, {}) : {}));
       } else if (r.result) {
-        // 実績h・進捗率を消した場合は実績レコードを削除する
+        // 実績h・進捗率を消した場合・未実施にした場合は実績レコードを削除する
         toDelete.push(r.result.id);
       }
     });
@@ -693,7 +732,9 @@
       var conf = PHASE[kind];
       var list = plansOf(date, member, kind);
       var leave = !list.length && kind === 'result' && isLeaveDay(date, member);
-      var done = list.length > 0 || leave;
+      // 終業前は、予定を「未実施」にしただけでも入力済み
+      var skipped = kind === 'result' ? notDonePlans(date, member).length : 0;
+      var done = list.length > 0 || skipped > 0 || leave;
       // 予定は件数があっても合計が基準に足りなければ「不足」として目立たせる
       var short = kind === 'plan' ? planShortage(list) : 0;
       var hours = fmtH(U.sum(list, function (p) { return p[conf.hourKey]; })) + 'h';
@@ -702,7 +743,7 @@
         title: short ? '予定の合計が基準 ' + dayTarget() + 'h に ' + fmtH(short) + 'h 足りません' : null,
         text: conf.icon + ' ' + conf.short + '　' + (leave ? '✓ 休暇のため不要' : short
           ? '⚠ ' + list.length + '件 ' + hours + '（' + fmtH(short) + 'h 不足）'
-          : done ? '✓ ' + list.length + '件 ' + hours
+          : done ? '✓ ' + list.length + '件 ' + hours + (skipped ? '・未実施 ' + skipped + '件' : '')
           : (isToday ? '未入力' : '入力なし'))
       }));
     });
@@ -746,6 +787,7 @@
       var rs = plansOf(date, m, 'result');
       var avg = U.avg(rs, function (p) { return p.progress; });
       var leave = !rs.length && isLeaveDay(date, m);
+      var skipped = notDonePlans(date, m).length;
       var short = planShortage(pl);
       function mark(ok, text) {
         return U.el('span', { class: 'chip', style: chipStyle(ok), text: text || (ok ? '✓ 済' : '未') });
@@ -769,7 +811,7 @@
         U.el('td', {}, [short
           ? U.el('span', { class: 'chip', style: chipStyle('warn'), text: '⚠ ' + fmtH(short) + 'h 不足' })
           : mark(pl.length > 0)]),
-        U.el('td', {}, [mark(rs.length > 0 || leave, leave ? '✓ 済（休暇）' : null)]),
+        U.el('td', {}, [mark(rs.length > 0 || skipped > 0 || leave, leave ? '✓ 済（休暇）' : (!rs.length && skipped ? '✓ 済（未実施のみ）' : null))]),
         U.el('td', {
           class: 'num', style: { color: short ? 'var(--danger)' : null, fontWeight: short ? '700' : null },
           text: U.fmtH(U.sum(pl, function (p) { return p.hours; }))
@@ -820,9 +862,9 @@
         U.el('td', { text: r.f.project || '' }),
         U.el('td', { text: r.f.title || '' }),
         U.el('td', { class: 'num', text: r.plan ? U.fmtH(r.hours) : '予定外' }),
-        U.el('td', { class: 'num', text: r.result ? U.fmtH(effActual(r)) : '' }),
+        U.el('td', { class: 'num', style: { color: notDone(r) ? 'var(--danger)' : null }, text: r.result ? U.fmtH(effActual(r)) : (notDone(r) ? '未実施' : '') }),
         U.el('td', { class: 'num', text: r.progress === null ? '' : U.fmtNum(r.progress, 0) + '%' }),
-        U.el('td', { text: r.result ? r.status : '' })
+        U.el('td', { text: r.result || notDone(r) ? r.status : '' })
       ]));
     });
     tbl.appendChild(tb);

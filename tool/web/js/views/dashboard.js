@@ -53,7 +53,7 @@
   }
   function itemHoursText(it) {
     var plan = it.plan && it.plan.hours ? U.fmtH(it.plan.hours) + 'h' : '';
-    if (!it.result) return plan;
+    if (!it.result) return plan + (it.plan && it.plan.status === '中止' ? ' → 未実施' : '');
     return (plan || '予定外') + ' → ' + U.fmtH(itemActualH(it)) + 'h';
   }
 
