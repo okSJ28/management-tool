@@ -156,19 +156,32 @@
     });
 
     var sep = { borderLeft: '2px solid var(--border)' };
+    /* 合計の列は色付きの背景と太い区切り線で目立たせる */
+    var totalSep = { borderLeft: '3px solid var(--primary)' };
+    var totalHead = { background: 'var(--primary-soft)', color: 'var(--primary-dark)', fontWeight: 800 };
     var groups = EXP_RESOURCES.concat(['合計']);
     var gh = U.el('tr', {}, [U.el('th', { rowspan: 2, class: 'col-pin', text: '氏名' })]);
     var ch = U.el('tr');
     groups.forEach(function (g) {
-      gh.appendChild(U.el('th', { colspan: EXP_KUBUNS.length, style: Object.assign({ textAlign: 'center' }, sep), text: g }));
+      var isTotal = g === '合計';
+      gh.appendChild(U.el('th', {
+        colspan: EXP_KUBUNS.length, text: g,
+        style: Object.assign({ textAlign: 'center' }, isTotal ? Object.assign({ fontSize: '13px' }, totalHead, totalSep) : sep)
+      }));
       EXP_KUBUNS.forEach(function (k, ki) {
-        ch.appendChild(U.el('th', { style: Object.assign({ minWidth: '54px', textAlign: 'right' }, ki === 0 ? sep : {}), text: k }));
+        ch.appendChild(U.el('th', {
+          text: k,
+          style: Object.assign({ minWidth: '54px', textAlign: 'right' }, isTotal ? totalHead : {}, ki === 0 ? (isTotal ? totalSep : sep) : {})
+        }));
       });
     });
 
-    function cell(value, first, bold) {
+    function cell(value, first, isTotal) {
+      var style = isTotal
+        ? { background: 'var(--primary-soft)', color: value ? 'var(--primary-dark)' : 'var(--text-3)', fontWeight: value ? 800 : 400, fontSize: '14px' }
+        : { color: value ? 'var(--text)' : 'var(--text-3)', fontWeight: 400 };
       return U.el('td', {
-        class: 'num', style: Object.assign({ color: value ? 'var(--text)' : 'var(--text-3)', fontWeight: bold && value ? 800 : 400 }, first ? sep : {}),
+        class: 'num', style: Object.assign(style, first ? (isTotal ? totalSep : sep) : {}),
         text: value ? String(value) : '·'
       });
     }
