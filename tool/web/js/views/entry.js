@@ -7,6 +7,10 @@
 
   var year = null;
 
+  /* 経験本数の対象（リソース区分はこの 3 つだけ。SQL・bjex などは数えない） */
+  var EXP_RESOURCES = ['JN', 'リアル', 'RD'];
+  var EXP_KUBUNS = ['新規', '修正'];
+
   function cycle(current, list) {
     var idx = list.indexOf(current);
     return idx < 0 ? list[0] : (idx + 1 >= list.length ? '' : list[idx + 1]);
@@ -124,6 +128,7 @@
       wrap.appendChild(tbl);
       card.appendChild(wrap);
       root.appendChild(card);
+      root.appendChild(experienceCard(members));
 
       root.appendChild(Views._helpers.chartCard('月別 入力完了人数', function (box) {
         Charts.bar(box, {
@@ -135,6 +140,61 @@
       }));
     }
   };
+
+  /* 担当者ごとの新規／修正の経験本数（製造タスク・全期間、ステータス「対象外」は除く） */
+  function experienceCard(members) {
+    var counts = {};
+    members.forEach(function (m) { counts[m] = {}; });
+    State.of('mfg').forEach(function (t) {
+      if (EXP_RESOURCES.indexOf(t.resource) < 0 || EXP_KUBUNS.indexOf(t.kubun) < 0) return;
+      if (t.status === '対象外') return;
+      U.uniq([t.assignee1, t.assignee2]).forEach(function (m) {
+        if (!counts[m]) return;
+        var key = t.resource + '|' + t.kubun;
+        counts[m][key] = (counts[m][key] || 0) + 1;
+      });
+    });
+
+    var sep = { borderLeft: '2px solid var(--border)' };
+    var groups = EXP_RESOURCES.concat(['合計']);
+    var gh = U.el('tr', {}, [U.el('th', { rowspan: 2, class: 'col-pin', text: '氏名' })]);
+    var ch = U.el('tr');
+    groups.forEach(function (g) {
+      gh.appendChild(U.el('th', { colspan: EXP_KUBUNS.length, style: Object.assign({ textAlign: 'center' }, sep), text: g }));
+      EXP_KUBUNS.forEach(function (k, ki) {
+        ch.appendChild(U.el('th', { style: Object.assign({ minWidth: '54px', textAlign: 'right' }, ki === 0 ? sep : {}), text: k }));
+      });
+    });
+
+    function cell(value, first, bold) {
+      return U.el('td', {
+        class: 'num', style: Object.assign({ color: value ? 'var(--text)' : 'var(--text-3)', fontWeight: bold && value ? 800 : 400 }, first ? sep : {}),
+        text: value ? String(value) : '·'
+      });
+    }
+
+    var tb = U.el('tbody');
+    members.forEach(function (m) {
+      var c = counts[m];
+      var tr = U.el('tr', {}, [U.el('td', { class: 'col-pin' }, [U.el('b', { text: m })])]);
+      EXP_RESOURCES.forEach(function (r) {
+        EXP_KUBUNS.forEach(function (k, ki) { tr.appendChild(cell(c[r + '|' + k] || 0, ki === 0)); });
+      });
+      EXP_KUBUNS.forEach(function (k, ki) {
+        var total = U.sum(EXP_RESOURCES, function (r) { return c[r + '|' + k] || 0; });
+        tr.appendChild(cell(total, ki === 0, true));
+      });
+      tb.appendChild(tr);
+    });
+
+    return U.el('div', { class: 'card mt16' }, [
+      U.el('div', { class: 'card-head' }, [
+        U.el('h3', { text: '経験本数（新規／修正）' }),
+        U.el('span', { class: 'sub', text: '製造タスク・全期間／リソース区分 ' + EXP_RESOURCES.join('・') + ' のみ' })
+      ]),
+      U.el('div', { class: 'table-wrap' }, [U.el('table', { class: 'grid-table' }, [U.el('thead', {}, [gh, ch]), tb])])
+    ]);
+  }
 
   function exportCsv(members, months) {
     var head = ['氏名'].concat(months.map(function (mk) { return parseInt(mk.split('-')[1], 10) + '月'; }));
