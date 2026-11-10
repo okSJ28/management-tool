@@ -156,32 +156,33 @@
     });
 
     var sep = { borderLeft: '2px solid var(--border)' };
-    /* 合計の列は色付きの背景と太い区切り線で目立たせる */
+    /* 合計の列は氏名のすぐ右に置き、色付きの背景と内訳との間の太い区切り線で目立たせる */
     var totalSep = { borderLeft: '3px solid var(--primary)' };
     var totalHead = { background: 'var(--primary-soft)', color: 'var(--primary-dark)', fontWeight: 800 };
-    var groups = EXP_RESOURCES.concat(['合計']);
+    var groups = ['合計'].concat(EXP_RESOURCES);
+    function groupSep(g) { return g === EXP_RESOURCES[0] ? totalSep : sep; }
     var gh = U.el('tr', {}, [U.el('th', { rowspan: 2, class: 'col-pin', text: '氏名' })]);
     var ch = U.el('tr');
     groups.forEach(function (g) {
       var isTotal = g === '合計';
       gh.appendChild(U.el('th', {
         colspan: EXP_KUBUNS.length, text: g,
-        style: Object.assign({ textAlign: 'center' }, isTotal ? Object.assign({ fontSize: '13px' }, totalHead, totalSep) : sep)
+        style: Object.assign({ textAlign: 'center' }, isTotal ? Object.assign({ fontSize: '13px' }, totalHead) : {}, groupSep(g))
       }));
       EXP_KUBUNS.forEach(function (k, ki) {
         ch.appendChild(U.el('th', {
           text: k,
-          style: Object.assign({ minWidth: '54px', textAlign: 'right' }, isTotal ? totalHead : {}, ki === 0 ? (isTotal ? totalSep : sep) : {})
+          style: Object.assign({ minWidth: '54px', textAlign: 'right' }, isTotal ? totalHead : {}, ki === 0 ? groupSep(g) : {})
         }));
       });
     });
 
-    function cell(value, first, isTotal) {
+    function cell(value, border, isTotal) {
       var style = isTotal
         ? { background: 'var(--primary-soft)', color: value ? 'var(--primary-dark)' : 'var(--text-3)', fontWeight: value ? 800 : 400, fontSize: '14px' }
         : { color: value ? 'var(--text)' : 'var(--text-3)', fontWeight: 400 };
       return U.el('td', {
-        class: 'num', style: Object.assign(style, first ? (isTotal ? totalSep : sep) : {}),
+        class: 'num', style: Object.assign(style, border || {}),
         text: value ? String(value) : '·'
       });
     }
@@ -190,12 +191,12 @@
     members.forEach(function (m) {
       var c = counts[m];
       var tr = U.el('tr', {}, [U.el('td', { class: 'col-pin' }, [U.el('b', { text: m })])]);
-      EXP_RESOURCES.forEach(function (r) {
-        EXP_KUBUNS.forEach(function (k, ki) { tr.appendChild(cell(c[r + '|' + k] || 0, ki === 0)); });
-      });
       EXP_KUBUNS.forEach(function (k, ki) {
         var total = U.sum(EXP_RESOURCES, function (r) { return c[r + '|' + k] || 0; });
-        tr.appendChild(cell(total, ki === 0, true));
+        tr.appendChild(cell(total, ki === 0 && groupSep('合計'), true));
+      });
+      EXP_RESOURCES.forEach(function (r) {
+        EXP_KUBUNS.forEach(function (k, ki) { tr.appendChild(cell(c[r + '|' + k] || 0, ki === 0 && groupSep(r))); });
       });
       tb.appendChild(tr);
     });
