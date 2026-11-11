@@ -273,13 +273,14 @@ def month_key(value: Any) -> str | None:
 # --------------------------------------------------------------------------
 PLAN_TEXT_KEYS = ("member", "category", "project", "programId", "taskId",
                   "title", "status", "note", "updatedBy", "kind", "sourceId",
-                  "assignmentId", "projectCode", "workCode", "seriesId")
+                  "assignmentId", "projectCode", "workCode", "seriesId", "delayReason")
 PLAN_NUM_KEYS = ("hours", "actualHours", "progress")
 
 # "plan"   = 始業前に登録するその日の予定
 # "result" = 終業前に登録するその日の実績
 # "assignment" = 一定期間取り組む予定（日次の plan / result が assignmentId で紐づく）
 # seriesId = 定例予定（毎週の会議など）としてまとめて登録した plan に共通の ID
+# result の status は「予定通り」「遅延」のどちらか。delayReason = 遅延の理由（任意）
 PLAN_KINDS = ("plan", "result", "assignment")
 
 

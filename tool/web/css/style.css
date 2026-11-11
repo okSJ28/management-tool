@@ -447,6 +447,8 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .pi-seg button.on { background: var(--primary); color: #fff; }
 .pi-seg.pi-need { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger-soft); }
 .pi-dim select { opacity: .45; }
+.pi-table td select.pi-delayed { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+.pi-table td input.pi-reason { display: block; margin-top: 4px; font-size: 11px; }
 .pi-hbar { position: relative; flex: 1; min-width: 160px; height: 10px; border-radius: 5px; background: var(--border); display: flex; overflow: visible; }
 .pi-hbar span { height: 100%; }
 .pi-hbar span:first-child { border-radius: 5px 0 0 5px; }

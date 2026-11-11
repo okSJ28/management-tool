@@ -9,6 +9,8 @@
   var UNSET = '__unset__';
   var R = { from: '', to: '', dim: 'category' };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
+  /* 日次入力で状況を「遅延」にした実績。ボードで目立たせる */
+  var DELAYED = '遅延';
 
   function kindOf(p) {
     return p && (p.kind === 'result' || p.kind === 'assignment') ? p.kind : 'plan';
@@ -16,6 +18,7 @@
   function isPlan(p) { return kindOf(p) === 'plan'; }
   function isResult(p) { return kindOf(p) === 'result'; }
   function isAssignment(p) { return kindOf(p) === 'assignment'; }
+  function isDelayed(p) { return isResult(p) && p.status === DELAYED; }
 
   function filteredPlans() {
     return (State.plans || []).filter(function (p) {
@@ -161,19 +164,27 @@
         var result = isResult(p);
         // 予定していたがやらなかった（日次入力で未実施にした）予定は薄く「未実施」と表示する
         var skipped = !result && p.status === '中止';
+        // 遅延した実績は赤枠・赤背景にして「⚠ 遅延」を付ける
+        var delayed = isDelayed(p);
         return U.el('div', {
           style: {
             opacity: skipped ? '0.55' : null,
-            background: result ? 'transparent' : color + '1c',
-            border: result ? '1px dashed ' + color : null,
-            borderLeft: '3px solid ' + color, borderRadius: '4px',
+            background: delayed ? 'var(--danger-soft)' : result ? 'transparent' : color + '1c',
+            border: delayed ? '2px solid var(--danger)' : result ? '1px dashed ' + color : null,
+            borderLeft: '3px solid ' + (delayed ? 'var(--danger)' : color), borderRadius: '4px',
             padding: '2px 5px', marginBottom: '2px', fontSize: '10.5px', whiteSpace: 'normal'
           },
           title: (result ? '実績' : '予定') + ' / ' + (p.category || '') + ' ' + (p.title || '') + '\n' + (p.project || '')
             + '\n' + (result ? '実績 ' + (p.actualHours || 0) + 'h 進捗 ' + (p.progress === null || p.progress === undefined ? '-' : p.progress + '%')
-              : '予定 ' + (p.hours || 0) + 'h' + (skipped ? '（未実施）' : '')) + (p.seriesId ? '\n🔁 定例予定' : ''),
+              : '予定 ' + (p.hours || 0) + 'h' + (skipped ? '（未実施）' : ''))
+            + (delayed ? '\n⚠ 遅延' + (p.delayReason ? '：' + p.delayReason : '') : '')
+            + (p.seriesId ? '\n🔁 定例予定' : ''),
           onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
         }, [
+          delayed ? U.el('div', {
+            class: 'strong', text: '⚠ 遅延',
+            style: { display: 'inline-block', background: 'var(--danger)', color: '#fff', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', fontSize: '10px' }
+          }) : null,
           U.el('div', { class: 'strong', style: { color: color }, text: (p.seriesId ? '🔁 ' : '') + (p.category || '—') }),
           p.title ? U.el('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', overflowWrap: 'anywhere' }, text: p.title }) : null,
           U.el('div', { class: 'muted mono' }, [
@@ -202,9 +213,14 @@
         });
       }
 
+      var firstIso = U.iso(days[0]), lastIso = U.iso(days[days.length - 1]);
       var tb = U.el('tbody');
       members.forEach(function (m) {
         var tr = U.el('tr');
+        // 表示中の期間に遅延した実績の件数（絞り込み条件を反映）
+        var delays = plans.filter(function (p) {
+          return p.member === m && isDelayed(p) && p.date >= firstIso && p.date <= lastIso;
+        }).length;
         tr.appendChild(U.el('td', { class: 'col-pin' }, [
           U.el('span', {
             class: 'avatar', style: {
@@ -212,7 +228,11 @@
               fontSize: '9px', display: 'inline-grid', verticalAlign: 'middle', marginRight: '6px'
             }, text: U.initials(m)
           }),
-          U.el('b', { text: m })
+          U.el('b', { text: m }),
+          delays ? U.el('span', {
+            class: 'strong', text: '⚠' + delays, title: '表示中の期間に遅延した実績が ' + delays + ' 件あります',
+            style: { marginLeft: '6px', background: 'var(--danger)', color: '#fff', borderRadius: '8px', padding: '0 6px', fontSize: '10.5px' }
+          }) : null
         ]));
         days.forEach(function (d) {
           var iso = U.iso(d);
@@ -324,7 +344,8 @@
         Views._helpers.kpi('予定工数', U.fmtH(planned), 'h', '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
         Views._helpers.kpi('実績工数', U.fmtH(actual), 'h', planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
         Views._helpers.kpi('平均進捗率', resultRows.length ? U.fmtNum(avgProgress, 0) : '—', '%',
-          '完了 ' + resultRows.filter(function (p) { return p.status === '完了'; }).length + '件', 'amber')
+          '完了（進捗100%） ' + resultRows.filter(function (p) { return p.progress === 100; }).length + '件'
+          + ' / 遅延 ' + resultRows.filter(isDelayed).length + '件', 'amber')
       ]));
 
       var g = U.groupBy(plans, function (p) { return p[R.dim]; });
@@ -396,7 +417,7 @@
   function exportPlans() {
     var head = ['種別', '担当者', '開始日', '終了日', 'PJCD', 'PJ名称', '作業コード', '作業コード名称',
       '工程（作業区分）', '案件名', '作業内容',
-      '予定工数', '実績工数', '進捗率', '状況', '取組み予定ID', '備考', '更新者'];
+      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '取組み予定ID', '備考', '更新者'];
     var label = { plan: '予定', result: '実績', assignment: '取組み予定' };
     var lines = [head.join(',')];
     (State.plans || []).slice().sort(function (a, b) {
@@ -408,7 +429,7 @@
         p.projectCode, State.codeName('projectCodes', p.projectCode),
         p.workCode, State.codeName('workCodes', p.workCode),
         p.category, p.project, p.title,
-        p.hours, p.actualHours, p.progress, p.status, p.assignmentId, p.note, p.updatedBy]
+        p.hours, p.actualHours, p.progress, p.status, p.delayReason, p.assignmentId, p.note, p.updatedBy]
         .map(function (v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; }).join(','));
     });
     U.download('業務予定実績.csv', new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' }));

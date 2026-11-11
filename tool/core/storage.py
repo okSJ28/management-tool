@@ -25,6 +25,8 @@ _LOCK = threading.RLock()
 _PLAN_PROJECTS_MIGRATION = "planProjectsRemovedAt"
 # meta key recording that 0h results / 0h plans were converted to 未実施 / 予定外
 _PLAN_NOT_DONE_MIGRATION = "planNotDoneMigratedAt"
+# meta key recording that result statuses (実施中・完了など) were converted to 予定通り
+_RESULT_STATUS_MIGRATION = "resultStatusMigratedAt"
 
 
 class ConflictError(Exception):
@@ -130,6 +132,7 @@ class Store:
             self._pending = _empty_pending()
             self._migrate_plan_projects()
             self._migrate_not_done()
+            self._migrate_result_status()
             return base
 
     def _migrate_plan_projects(self) -> None:
@@ -182,6 +185,24 @@ class Store:
             self._mark_plan_deleted(drop)
             self.save()
         DB.set_meta(_PLAN_NOT_DONE_MIGRATION, _now())
+
+    def _migrate_result_status(self) -> None:
+        """One-off: 実績の状況を「予定通り」「遅延」の 2 つにそろえる。
+
+        以前は業務予定のステータス（実施中・完了・中止など）を実績にも使っていた。
+        遅延の記録は無かったので、遅延以外はすべて「予定通り」にする。
+        """
+        if DB.get_meta(_RESULT_STATUS_MIGRATION):
+            return
+        changed = False
+        for r in self._data.get("plans", []):
+            if r.get("kind") == "result" and r.get("status") not in ("予定通り", "遅延"):
+                r["status"] = "予定通り"
+                self._mark_plan(r)
+                changed = True
+        if changed:
+            self.save()
+        DB.set_meta(_RESULT_STATUS_MIGRATION, _now())
 
     def save(self) -> None:
         with _LOCK:
