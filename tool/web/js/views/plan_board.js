@@ -176,7 +176,7 @@
           },
           title: (result ? '実績' : '予定') + ' / ' + (p.category || '') + ' ' + (p.title || '') + '\n' + (p.project || '')
             + '\n' + (result ? '実績 ' + (p.actualHours || 0) + 'h 進捗 ' + (p.progress === null || p.progress === undefined ? '-' : p.progress + '%')
-              : '予定 ' + (p.hours || 0) + 'h' + (skipped ? '（未実施）' : ''))
+              : '予定 ' + (p.hours || 0) + 'h' + (skipped ? '（未実施' + (p.skipReason ? '：' + p.skipReason : '') + '）' : ''))
             + (delayed ? '\n⚠ 遅延' + (p.delayReason ? '：' + p.delayReason : '') : '')
             + (p.seriesId ? '\n🔁 定例予定' : ''),
           onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
@@ -417,7 +417,7 @@
   function exportPlans() {
     var head = ['種別', '担当者', '開始日', '終了日', 'PJCD', 'PJ名称', '作業コード', '作業コード名称',
       '工程（作業区分）', '案件名', '作業内容',
-      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '取組み予定ID', '備考', '更新者'];
+      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '未実施理由', '取組み予定ID', '備考', '更新者'];
     var label = { plan: '予定', result: '実績', assignment: '取組み予定' };
     var lines = [head.join(',')];
     (State.plans || []).slice().sort(function (a, b) {
@@ -429,7 +429,7 @@
         p.projectCode, State.codeName('projectCodes', p.projectCode),
         p.workCode, State.codeName('workCodes', p.workCode),
         p.category, p.project, p.title,
-        p.hours, p.actualHours, p.progress, p.status, p.delayReason, p.assignmentId, p.note, p.updatedBy]
+        p.hours, p.actualHours, p.progress, p.status, p.delayReason, p.skipReason, p.assignmentId, p.note, p.updatedBy]
         .map(function (v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; }).join(','));
     });
     U.download('業務予定実績.csv', new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' }));

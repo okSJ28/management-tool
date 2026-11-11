@@ -27,9 +27,10 @@
   var LEAVE = '休暇';
   /* やらなかった予定に付ける状況（実績は作らない） */
   var NOT_DONE = '中止';
-  /* 実績の状況。遅延はチーム予定ボードで目立たせる */
-  var ON_TRACK = '予定通り', DELAYED = '遅延';
+  /* 実績の状況。遅延はチーム予定ボードで目立たせる。未実施は実績を作らず、予定の状況を「中止」にする */
+  var ON_TRACK = '予定通り', DELAYED = '遅延', SKIPPED = '未実施';
   var RESULT_STATUSES = [ON_TRACK, DELAYED];
+  var ROW_STATUSES = [ON_TRACK, DELAYED, SKIPPED];
 
   function kindOf(p) {
     return p && (p.kind === 'result' || p.kind === 'assignment') ? p.kind : 'plan';
@@ -108,15 +109,18 @@
     var src = result || plan || {};
     var f = {};
     SHARED.forEach(function (k) { f[k] = src[k] === undefined ? null : src[k]; });
-    // 未実施にした予定は、実績の代わりに予定に残した進捗率を表示する（進捗率が空なら 0% として未実施を保つ）
+    // 未実施にした予定は、状況「未実施」と、予定に残した進捗率・理由を表示する
     var skipped = !!plan && !result && plan.status === NOT_DONE;
     return {
       plan: plan, result: result, hasPlan: !!plan || !result, f: f,
       hours: plan ? plan.hours : null,
       actualHours: result ? result.actualHours : null,
-      progress: result ? result.progress : (skipped ? (plan.progress === null || plan.progress === undefined ? 0 : plan.progress) : null),
-      status: result && result.status === DELAYED ? DELAYED : ON_TRACK,
-      delayReason: (result && result.delayReason) || null,
+      progress: result ? result.progress : (skipped && plan.progress !== undefined ? plan.progress : null),
+      status: skipped ? SKIPPED : (result && result.status === DELAYED ? DELAYED : ON_TRACK),
+      // 遅延の理由は実績の delayReason、未実施の理由は予定の skipReason に保存する
+      reason: (result ? result.delayReason : skipped ? plan.skipReason : null) || null,
+      // 進捗 0% で未実施にした予定は、0 以外の進捗率を入れ直したら予定通りに戻す
+      autoSkipped: skipped && plan.progress === 0,
       dirty: false, fieldsEdited: false, codesOpen: false
     };
   }
@@ -151,13 +155,10 @@
 
   /* 実績h・進捗率のどちらかが入っていれば実績ありとする（両方消すと実績の取消し） */
   function hasResult(r) { return r.actualHours !== null || r.progress !== null; }
-  /* 予定していたがやらなかった作業（実績 0h、または実績h 空欄で進捗 0%）。
-     実績は作らず、予定の状況を「中止」にして「未実施」と表示する（進捗率は予定に残す） */
-  function notDone(r) {
-    if (!r.hasPlan) return false;
-    if (r.actualHours !== null) return r.actualHours === 0;
-    return r.progress === 0;
-  }
+  /* 予定していたがやらなかった作業（状況「未実施」）。実績は作らず、予定の状況を「中止」にする（進捗率・理由は予定に残す）。
+     実績 0h、または実績h 空欄で進捗 0% を入れたときも自動で「未実施」にする（autoSkipped） */
+  function notDone(r) { return r.hasPlan && r.status === SKIPPED; }
+  function zeroEntered(r) { return r.actualHours === 0 || (r.actualHours === null && r.progress === 0); }
   /* 予定(h) が空欄・0 の予定行に実績を入れたもの。突発作業として予定外（実績のみ）で保存する */
   function unplannedWork(r) { return r.hasPlan && !(r.hours > 0) && hasResult(r) && !notDone(r); }
   /* 実績として数える行（未実施は除く） */
@@ -308,7 +309,7 @@
       ]));
 
       var changed = P.rows.filter(function (r) { return r.dirty && (!isBlank(r) || r.plan || r.result); }).length + P.removed.length;
-      var missing = P.rows.filter(function (r) { return hasResult(r) && r.progress === null; }).length;
+      var missing = P.rows.filter(function (r) { return countsAsResult(r) && r.progress === null; }).length;
       U.clear(foot);
       foot.appendChild(U.el('span', {
         class: 'pi-state' + (changed ? ' warn' : ''),
@@ -504,7 +505,7 @@
     var diffTd = U.el('td', { class: 'num' });
     var actual;
     function paintDiff() {
-      var d = diffCell(hasResult(r) && r.hasPlan ? effActual(r) : null, r.hours);
+      var d = diffCell((hasResult(r) || notDone(r)) && r.hasPlan ? effActual(r) : null, r.hours);
       diffTd.className = d.className;
       diffTd.textContent = d.textContent;
       // やらなかった予定は「未実施」、予定(h) 空欄で実績を入れた行は予定外として保存することを示す
@@ -533,7 +534,7 @@
       placeholder: r.hasPlan && r.hours !== null ? String(r.hours) : '',
       title: '空欄のまま進捗率を入れると、予定(h) と同じ時間で登録します。0h・0% は未実施（実績にしない）'
     });
-    actual.addEventListener('input', function () { r.actualHours = U.num(this.value); touch(r); paintDiff(); paintProgress(); refresh(); dim(); });
+    actual.addEventListener('input', function () { r.actualHours = U.num(this.value); syncSkip(); touch(r); paintDiff(); paintProgress(); refresh(); dim(); });
     tr.appendChild(U.el('td', { class: 'pi-pm' }, [actual]));
     tr.appendChild(diffTd);
     paintDiff();
@@ -545,13 +546,13 @@
       Array.prototype.forEach.call(seg.children, function (b) {
         b.classList.toggle('on', r.progress !== null && Number(b.dataset.v) === r.progress);
       });
-      seg.classList.toggle('pi-need', hasResult(r) && r.progress === null);
+      seg.classList.toggle('pi-need', countsAsResult(r) && r.progress === null);
     }
     function setProgress(v, fromInput) {
       r.progress = v === null ? null : Math.max(0, Math.min(100, v));
       // 範囲外の値（150 など）は補正後の値を欄にも表示する
       if (!fromInput || r.progress !== v) prog.value = r.progress === null ? '' : r.progress;
-      touch(r); paintProgress(); paintDiff(); refresh(); dim();
+      syncSkip(); touch(r); paintProgress(); paintDiff(); refresh(); dim();
     }
     PROGRESS_STEPS.forEach(function (v) {
       seg.appendChild(U.el('button', {
@@ -562,31 +563,52 @@
     prog.addEventListener('input', function () { setProgress(U.num(this.value), true); });
     tr.appendChild(U.el('td', {}, [U.el('div', { class: 'pi-progress' }, [seg, prog, U.el('span', { class: 'muted', text: '%' })])]));
 
-    /* 状況（予定通り／遅延）。遅延のときは理由を任意で入力する */
-    var reason = U.el('input', {
-      type: 'text', class: 'pi-reason', value: r.delayReason || '', placeholder: '遅延の理由（任意）',
-      title: r.delayReason || ''
-    });
-    reason.addEventListener('input', function () { r.delayReason = this.value || null; this.title = this.value; touch(r); });
+    /* 状況（予定通り／遅延／未実施）。遅延・未実施のときは理由を任意で入力する。
+       未実施は予定のある行だけ選べ、実績h・進捗率なしで保存できる */
+    var reason = U.el('input', { type: 'text', class: 'pi-reason', value: r.reason || '', title: r.reason || '' });
+    reason.addEventListener('input', function () { r.reason = this.value || null; this.title = this.value; touch(r); });
     var st = U.el('select', {
       onchange: function () {
+        var was = r.status;
         r.status = this.value;
-        paintStatus(); touch(r); refresh();
+        r.autoSkipped = false;
+        if (r.status === SKIPPED) {
+          // やらなかった作業なので実績h は消す（進捗率は作業全体の進み具合として残す）
+          if (r.actualHours !== null) { r.actualHours = null; actual.value = ''; }
+        } else if (was === SKIPPED && zeroEntered(r)) {
+          // 0h・0% は未実施の印なので、未実施をやめたら消して入力し直してもらう
+          if (r.actualHours === 0) { r.actualHours = null; actual.value = ''; }
+          if (r.progress === 0) { r.progress = null; prog.value = ''; }
+        }
+        paintStatus(); touch(r); paintDiff(); paintProgress(); refresh(); dim();
       }
     });
-    RESULT_STATUSES.forEach(function (s) {
+    (r.hasPlan ? ROW_STATUSES : RESULT_STATUSES).forEach(function (s) {
       st.appendChild(U.el('option', { value: s, text: s, selected: r.status === s }));
     });
     st.value = r.status;
+    /* 0h・0% を入れたら自動で未実施に、自動で未実施にした行に実績を入れ直したら予定通りに戻す */
+    function syncSkip() {
+      if (!r.hasPlan) return;
+      if (zeroEntered(r)) {
+        if (r.status !== SKIPPED) { r.status = SKIPPED; r.autoSkipped = true; }
+      } else if (r.status === SKIPPED && (r.autoSkipped || r.actualHours > 0)) {
+        r.status = ON_TRACK; r.autoSkipped = false;
+      }
+      st.value = r.status;
+      paintStatus();
+    }
     function paintStatus() {
       st.classList.toggle('pi-delayed', r.status === DELAYED);
-      reason.style.display = r.status === DELAYED ? '' : 'none';
+      st.classList.toggle('pi-skipped', r.status === SKIPPED);
+      reason.style.display = r.status === DELAYED || r.status === SKIPPED ? '' : 'none';
+      reason.placeholder = (r.status === SKIPPED ? '未実施' : '遅延') + 'の理由（任意）';
     }
     paintStatus();
     var stTd = U.el('td', {}, [st, reason]);
     tr.appendChild(stTd);
-    // 実績が未入力の行・未実施の行は状況を薄く表示する
-    function dim() { stTd.classList.toggle('pi-dim', !countsAsResult(r)); }
+    // 実績が未入力の行は状況を薄く表示する
+    function dim() { stTd.classList.toggle('pi-dim', !countsAsResult(r) && !notDone(r)); }
     dim();
     paintProgress();
 
@@ -701,14 +723,15 @@
           id: planId, kind: 'plan', hours: r.hours,
           // やらなかった予定は状況を「中止」にし（＝未実施）、実績は作らない。進捗率は予定に残す
           status: notDone(r) ? NOT_DONE : (prevStatus || '予定'),
-          progress: notDone(r) ? r.progress : null
+          progress: notDone(r) ? r.progress : null,
+          skipReason: notDone(r) ? r.reason : null
         }));
       }
       if (countsAsResult(r)) {
         payload.push(Object.assign({}, r.result || {}, shared(r.result), {
           id: (r.result && r.result.id) || newId(), kind: 'result',
           actualHours: effActual(r), progress: r.progress, status: r.status,
-          delayReason: r.status === DELAYED ? r.delayReason : null,
+          delayReason: r.status === DELAYED ? r.reason : null,
           sourceId: unplanned ? null : (planId || (r.result && r.result.sourceId) || null)
         }, unplanned ? SHARED.reduce(function (o, k) { o[k] = r.f[k]; return o; }, {}) : {}));
       } else if (r.result) {
@@ -877,9 +900,9 @@
         U.el('td', { class: 'num', text: r.progress === null ? '' : U.fmtNum(r.progress, 0) + '%' }),
         U.el('td', {
           class: r.result && r.status === DELAYED ? 'strong' : null,
-          style: { color: r.result && r.status === DELAYED ? 'var(--danger)' : null },
-          title: r.result && r.delayReason ? '遅延の理由: ' + r.delayReason : null,
-          text: r.result ? (r.status === DELAYED ? '⚠ ' + DELAYED : r.status) : ''
+          style: { color: r.result && r.status === DELAYED ? 'var(--danger)' : notDone(r) ? 'var(--text-3)' : null },
+          title: r.reason ? r.status + 'の理由: ' + r.reason : null,
+          text: r.result ? (r.status === DELAYED ? '⚠ ' + DELAYED : r.status) : (notDone(r) ? SKIPPED : '')
         })
       ]));
     });
@@ -1080,12 +1103,19 @@
     field('対象日', input({ type: 'date', value: draft.date || '' }, 'date'));
     field('予定工数(h)', input({ type: 'number', step: '0.5', value: draft.hours === null || draft.hours === undefined ? '' : draft.hours }, 'hours', U.num));
     field('実績工数(h)', input({ type: 'number', step: '0.5', value: draft.actualHours === null || draft.actualHours === undefined ? '' : draft.actualHours }, 'actualHours', U.num));
-    // 状況は、予定は業務予定のステータス、実績は予定通り／遅延（遅延のときは理由も入力できる）
+    // 状況は、予定は業務予定のステータス、実績は予定通り／遅延。
+    // 実績の遅延は遅延の理由（delayReason）、予定の中止（＝未実施）は未実施の理由（skipReason）を入力できる
     var statusSel = U.el('select', {
       onchange: function () { draft.status = this.value || null; paintStatus(); }
     });
-    var reasonInput = input({ type: 'text', value: draft.delayReason || '', placeholder: '遅延の理由（任意）' }, 'delayReason');
-    var reasonField = U.el('div', { class: 'field span2' }, [U.el('label', { text: '遅延の理由' }), reasonInput]);
+    function reasonKey() {
+      if (draft.kind === 'result') return draft.status === DELAYED ? 'delayReason' : null;
+      return draft.status === NOT_DONE ? 'skipReason' : null;
+    }
+    var reasonInput = U.el('input', { type: 'text' });
+    reasonInput.addEventListener('input', function () { if (reasonKey()) draft[reasonKey()] = this.value || null; });
+    var reasonLabel = U.el('label');
+    var reasonField = U.el('div', { class: 'field span2' }, [reasonLabel, reasonInput]);
     function paintStatus() {
       var result = draft.kind === 'result';
       var list = result ? RESULT_STATUSES : (State.masters.planStatuses || []).map(function (o) { return o.value; });
@@ -1094,7 +1124,11 @@
       if (!result) statusSel.appendChild(U.el('option', { value: '', text: '—' }));
       list.forEach(function (v) { statusSel.appendChild(U.el('option', { value: v, text: v })); });
       statusSel.value = draft.status || '';
-      reasonField.style.display = result && draft.status === DELAYED ? '' : 'none';
+      var key = reasonKey(), label = key === 'skipReason' ? '未実施の理由' : '遅延の理由';
+      reasonField.style.display = key ? '' : 'none';
+      reasonLabel.textContent = label;
+      reasonInput.placeholder = label + '（任意）';
+      reasonInput.value = (key && draft[key]) || '';
     }
     field('ステータス', statusSel);
     field('進捗率(%)', input({ type: 'number', step: '10', min: '0', max: '100', value: draft.progress === null || draft.progress === undefined ? '' : draft.progress }, 'progress', U.num));
@@ -1178,7 +1212,8 @@
           U.toast('進捗率は 0〜100 の範囲で入力してください', 'warn'); return;
         }
         draft.endDate = draft.date;
-        if (!(draft.kind === 'result' && draft.status === DELAYED)) draft.delayReason = null;
+        if (reasonKey() !== 'delayReason') draft.delayReason = null;
+        if (reasonKey() !== 'skipReason') draft.skipReason = null;
         U.loading(true);
         (base && base.id ? API.updatePlan(base.id, draft) : API.addPlan(draft))
           .then(function () {
