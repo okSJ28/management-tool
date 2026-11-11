@@ -732,6 +732,7 @@
           id: (r.result && r.result.id) || newId(), kind: 'result',
           actualHours: effActual(r), progress: r.progress, status: r.status,
           delayReason: r.status === DELAYED ? r.reason : null,
+          delayResolvedAt: resolvedField(r, 'delayResolvedAt'), delayResolvedBy: resolvedField(r, 'delayResolvedBy'),
           sourceId: unplanned ? null : (planId || (r.result && r.result.sourceId) || null)
         }, unplanned ? SHARED.reduce(function (o, k) { o[k] = r.f[k]; return o; }, {}) : {}));
       } else if (r.result) {
@@ -752,6 +753,76 @@
         if (rows.length) parts.push(rows.length + ' 件');
         if (toDelete.length) parts.push('削除 ' + toDelete.length + ' 件');
         U.toast('保存しました（' + parts.join('・') + '）', 'ok');
+        App.render();
+      })
+      .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
+      .finally(function () { saving = false; U.loading(false); });
+  }
+
+  /* 遅延の解消の記録。遅延のまま保存する実績は最新の記録を残し、遅延でなくなった・新たに遅延にした実績は消す */
+  function resolvedField(r, key) {
+    if (r.status !== DELAYED || !r.result || r.result.status !== DELAYED) return null;
+    var cur = (State.plans || []).filter(function (p) { return p.id === r.result.id; })[0];
+    return (cur && cur[key]) || null;
+  }
+
+  /* ------------------------------------------------ 未解消の遅延 */
+  /* 状況「遅延」の実績で、まだ解消を登録していないもの（期間に関係なく）。解消は遅延を付けた日の実績ごとに登録する。
+     今日解消したものは、押し間違いを取り消せるように一覧に残す */
+  function delayPanel(member) {
+    var today = todayIso();
+    var list = (State.plans || []).filter(function (p) {
+      return p.member === member && kindOf(p) === 'result' && p.status === DELAYED
+        && (!p.delayResolvedAt || p.delayResolvedAt === today);
+    }).sort(function (a, b) { return (a.date || '') < (b.date || '') ? -1 : (a.date || '') > (b.date || '') ? 1 : 0; });
+    if (!list.length) return null;
+    var open = list.filter(function (p) { return !p.delayResolvedAt; }).length;
+
+    var tbl = U.el('table', { class: 'grid-table' });
+    tbl.appendChild(U.el('thead', {}, [
+      U.el('tr', {}, ['日付', '工程', '案件名', '作業内容', '進捗', '遅延の理由', ''].map(function (h, i) {
+        return U.el('th', { class: i === 4 ? 'right' : '', text: h });
+      }))
+    ]));
+    var tb = U.el('tbody');
+    list.forEach(function (p) {
+      var done = !!p.delayResolvedAt;
+      tb.appendChild(U.el('tr', { class: done ? 'pi-resolved' : null }, [
+        U.el('td', { class: 'mono', text: U.fmtDate(p.date) + '(' + WD[U.parseDate(p.date).getDay()] + ')' }),
+        U.el('td', { class: 'strong', style: { color: p.category ? State.planColor(p.category) : null }, text: p.category || '—' }),
+        U.el('td', { text: p.project || '' }),
+        U.el('td', { text: p.title || '' }),
+        U.el('td', { class: 'num', text: p.progress === null || p.progress === undefined ? '' : U.fmtNum(p.progress, 0) + '%' }),
+        U.el('td', { text: p.delayReason || '' }),
+        U.el('td', { class: 'right', style: { whiteSpace: 'nowrap' } }, done ? [
+          U.el('span', { class: 'chip', style: { background: 'var(--ok-soft)', color: 'var(--ok)', marginRight: '6px' }, text: '✓ 解消済み' }),
+          U.el('button', { class: 'btn btn-sm', text: '取消', title: '解消の登録を取り消します', onclick: function () { setResolved(p, false); } })
+        ] : [
+          U.el('button', { class: 'btn btn-sm btn-primary', text: '✓ 解消', title: '遅れを取り戻したので、この日の遅延を解消済みにします', onclick: function () { setResolved(p, true); } })
+        ])
+      ]));
+    });
+    tbl.appendChild(tb);
+    return U.el('div', { class: 'card pi-delays' }, [
+      U.el('div', { class: 'card-head' }, [
+        U.el('h3', { text: '⚠ 未解消の遅延（' + open + ' 件）' }),
+        U.el('span', { class: 'muted', text: '遅れを取り戻したら「✓ 解消」を押してください（遅延を付けた日ごとに登録します）' })
+      ]),
+      U.el('div', { class: 'table-wrap' }, [tbl])
+    ]);
+  }
+
+  /* 遅延の解消を登録（on=false で取消）。シートの未保存の変更とは別に、その実績だけをすぐ保存する */
+  function setResolved(p, on) {
+    if (saving) return;
+    saving = true;
+    U.loading(true);
+    API.savePlans([{
+      id: p.id, delayResolvedAt: on ? todayIso() : null, delayResolvedBy: on ? State.user() : null
+    }], [])
+      .then(function () { return State.reloadPlans(); })
+      .then(function () {
+        U.toast(on ? U.fmtDate(p.date) + ' の遅延を解消済みにしました' : '解消の登録を取り消しました', 'ok');
         App.render();
       })
       .catch(function (e) { U.toast('エラー: ' + e.message, 'err', 5000); })
@@ -1003,6 +1074,9 @@
         return;
       }
 
+      // 未解消の遅延があれば、毎日目にするようシートの上に出す
+      var delays = delayPanel(member);
+      if (delays) root.appendChild(delays);
       root.appendChild(sheet());
       root.appendChild(previousDay(date, member));
       // チームの入力状況は管理者のみ
@@ -1212,7 +1286,7 @@
           U.toast('進捗率は 0〜100 の範囲で入力してください', 'warn'); return;
         }
         draft.endDate = draft.date;
-        if (reasonKey() !== 'delayReason') draft.delayReason = null;
+        if (reasonKey() !== 'delayReason') { draft.delayReason = null; draft.delayResolvedAt = null; draft.delayResolvedBy = null; }
         if (reasonKey() !== 'skipReason') draft.skipReason = null;
         U.loading(true);
         (base && base.id ? API.updatePlan(base.id, draft) : API.addPlan(draft))

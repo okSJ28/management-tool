@@ -19,6 +19,8 @@
   function isResult(p) { return kindOf(p) === 'result'; }
   function isAssignment(p) { return kindOf(p) === 'assignment'; }
   function isDelayed(p) { return isResult(p) && p.status === DELAYED; }
+  /* 解消を登録していない遅延（日次入力の「未解消の遅延」から解消する） */
+  function isOpenDelay(p) { return isDelayed(p) && !p.delayResolvedAt; }
 
   function filteredPlans() {
     return (State.plans || []).filter(function (p) {
@@ -164,8 +166,8 @@
         var result = isResult(p);
         // 予定していたがやらなかった（日次入力で未実施にした）予定は薄く「未実施」と表示する
         var skipped = !result && p.status === '中止';
-        // 遅延した実績は赤枠・赤背景にして「⚠ 遅延」を付ける
-        var delayed = isDelayed(p);
+        // 未解消の遅延は赤枠・赤背景にして「⚠ 遅延」を付ける。解消済みの遅延は通常の実績の見た目に「✓ 遅延解消」を付ける
+        var delayed = isOpenDelay(p), resolved = isDelayed(p) && !delayed;
         return U.el('div', {
           style: {
             opacity: skipped ? '0.55' : null,
@@ -177,13 +179,17 @@
           title: (result ? '実績' : '予定') + ' / ' + (p.category || '') + ' ' + (p.title || '') + '\n' + (p.project || '')
             + '\n' + (result ? '実績 ' + (p.actualHours || 0) + 'h 進捗 ' + (p.progress === null || p.progress === undefined ? '-' : p.progress + '%')
               : '予定 ' + (p.hours || 0) + 'h' + (skipped ? '（未実施' + (p.skipReason ? '：' + p.skipReason : '') + '）' : ''))
-            + (delayed ? '\n⚠ 遅延' + (p.delayReason ? '：' + p.delayReason : '') : '')
+            + (delayed || resolved ? '\n⚠ 遅延' + (p.delayReason ? '：' + p.delayReason : '') : '')
+            + (resolved ? '\n✓ ' + U.fmtDate(p.delayResolvedAt) + ' 解消' + (p.delayResolvedBy ? '（' + p.delayResolvedBy + '）' : '') : '')
             + (p.seriesId ? '\n🔁 定例予定' : ''),
           onclick: function (e) { e.stopPropagation(); Views.planInput._editor(p, function () { App.render(); }); }
         }, [
           delayed ? U.el('div', {
             class: 'strong', text: '⚠ 遅延',
             style: { display: 'inline-block', background: 'var(--danger)', color: '#fff', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', fontSize: '10px' }
+          }) : resolved ? U.el('div', {
+            class: 'strong', text: '✓ 遅延解消',
+            style: { display: 'inline-block', background: 'var(--ok-soft)', color: 'var(--ok)', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', fontSize: '10px' }
           }) : null,
           U.el('div', { class: 'strong', style: { color: color }, text: (p.seriesId ? '🔁 ' : '') + (p.category || '—') }),
           p.title ? U.el('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', overflowWrap: 'anywhere' }, text: p.title }) : null,
@@ -213,14 +219,11 @@
         });
       }
 
-      var firstIso = U.iso(days[0]), lastIso = U.iso(days[days.length - 1]);
       var tb = U.el('tbody');
       members.forEach(function (m) {
         var tr = U.el('tr');
-        // 表示中の期間に遅延した実績の件数（絞り込み条件を反映）
-        var delays = plans.filter(function (p) {
-          return p.member === m && isDelayed(p) && p.date >= firstIso && p.date <= lastIso;
-        }).length;
+        // 未解消の遅延の件数（表示中の期間に関係なく数える。工程・案件などの絞り込み条件は反映）
+        var delays = plans.filter(function (p) { return p.member === m && isOpenDelay(p); }).length;
         tr.appendChild(U.el('td', { class: 'col-pin' }, [
           U.el('span', {
             class: 'avatar', style: {
@@ -230,7 +233,7 @@
           }),
           U.el('b', { text: m }),
           delays ? U.el('span', {
-            class: 'strong', text: '⚠' + delays, title: '表示中の期間に遅延した実績が ' + delays + ' 件あります',
+            class: 'strong', text: '⚠' + delays, title: '未解消の遅延が ' + delays + ' 件あります（表示中の期間より前の分も含む）',
             style: { marginLeft: '6px', background: 'var(--danger)', color: '#fff', borderRadius: '8px', padding: '0 6px', fontSize: '10.5px' }
           }) : null
         ]));
@@ -345,7 +348,7 @@
         Views._helpers.kpi('実績工数', U.fmtH(actual), 'h', planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
         Views._helpers.kpi('平均進捗率', resultRows.length ? U.fmtNum(avgProgress, 0) : '—', '%',
           '完了（進捗100%） ' + resultRows.filter(function (p) { return p.progress === 100; }).length + '件'
-          + ' / 遅延 ' + resultRows.filter(isDelayed).length + '件', 'amber')
+          + ' / 遅延 ' + resultRows.filter(isDelayed).length + '件（未解消 ' + resultRows.filter(isOpenDelay).length + '件）', 'amber')
       ]));
 
       var g = U.groupBy(plans, function (p) { return p[R.dim]; });
@@ -417,7 +420,7 @@
   function exportPlans() {
     var head = ['種別', '担当者', '開始日', '終了日', 'PJCD', 'PJ名称', '作業コード', '作業コード名称',
       '工程（作業区分）', '案件名', '作業内容',
-      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '未実施理由', '取組み予定ID', '備考', '更新者'];
+      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '遅延解消日', '未実施理由', '取組み予定ID', '備考', '更新者'];
     var label = { plan: '予定', result: '実績', assignment: '取組み予定' };
     var lines = [head.join(',')];
     (State.plans || []).slice().sort(function (a, b) {
@@ -429,7 +432,7 @@
         p.projectCode, State.codeName('projectCodes', p.projectCode),
         p.workCode, State.codeName('workCodes', p.workCode),
         p.category, p.project, p.title,
-        p.hours, p.actualHours, p.progress, p.status, p.delayReason, p.skipReason, p.assignmentId, p.note, p.updatedBy]
+        p.hours, p.actualHours, p.progress, p.status, p.delayReason, p.delayResolvedAt, p.skipReason, p.assignmentId, p.note, p.updatedBy]
         .map(function (v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; }).join(','));
     });
     U.download('業務予定実績.csv', new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' }));

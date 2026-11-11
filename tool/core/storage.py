@@ -187,22 +187,23 @@ class Store:
         DB.set_meta(_PLAN_NOT_DONE_MIGRATION, _now())
 
     def _migrate_result_status(self) -> None:
-        """One-off: 実績の状況を「予定通り」「遅延」の 2 つにそろえる。
+        """実績の状況を「予定通り」「遅延」の 2 つにそろえる（読み込みのたびに確認する）。
 
         以前は業務予定のステータス（実施中・完了・中止など）を実績にも使っていた。
         遅延の記録は無かったので、遅延以外はすべて「予定通り」にする。
+        更新前の画面を開いたままの利用者が保存した値も、次の読み込みでそろえる。
+        meta には最初に移行した日時を残す。
         """
-        if DB.get_meta(_RESULT_STATUS_MIGRATION):
-            return
         changed = False
         for r in self._data.get("plans", []):
-            if r.get("kind") == "result" and r.get("status") not in ("予定通り", "遅延"):
+            if r.get("kind") == "result" and r.get("status") not in model.RESULT_STATUSES:
                 r["status"] = "予定通り"
                 self._mark_plan(r)
                 changed = True
         if changed:
             self.save()
-        DB.set_meta(_RESULT_STATUS_MIGRATION, _now())
+        if not DB.get_meta(_RESULT_STATUS_MIGRATION):
+            DB.set_meta(_RESULT_STATUS_MIGRATION, _now())
 
     def save(self) -> None:
         with _LOCK:

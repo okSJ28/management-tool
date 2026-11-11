@@ -274,7 +274,7 @@ def month_key(value: Any) -> str | None:
 PLAN_TEXT_KEYS = ("member", "category", "project", "programId", "taskId",
                   "title", "status", "note", "updatedBy", "kind", "sourceId",
                   "assignmentId", "projectCode", "workCode", "seriesId", "delayReason",
-                  "skipReason")
+                  "skipReason", "delayResolvedAt", "delayResolvedBy")
 PLAN_NUM_KEYS = ("hours", "actualHours", "progress")
 
 # "plan"   = 始業前に登録するその日の予定
@@ -283,7 +283,9 @@ PLAN_NUM_KEYS = ("hours", "actualHours", "progress")
 # seriesId = 定例予定（毎週の会議など）としてまとめて登録した plan に共通の ID
 # result の status は「予定通り」「遅延」のどちらか。delayReason = 遅延の理由（任意）
 # skipReason = 日次入力で未実施（status「中止」）にした plan の理由（任意）
+# delayResolvedAt / delayResolvedBy = 遅延の result の解消を登録した日（YYYY-MM-DD）と登録者。未解消は空
 PLAN_KINDS = ("plan", "result", "assignment")
+RESULT_STATUSES = ("予定通り", "遅延")
 
 
 def normalize_plan(raw: dict) -> dict:
@@ -294,6 +296,10 @@ def normalize_plan(raw: dict) -> dict:
     if plan.get("member"):
         plan["member"] = norm_member(plan["member"])
     plan["kind"] = plan["kind"] if plan["kind"] in PLAN_KINDS else PLAN_KINDS[0]
+    # 実績の状況は「予定通り」「遅延」のどちらか。更新前の画面を開いたままの利用者が
+    # 保存した値（予定・実施中・完了など）も「予定通り」にそろえる
+    if plan["kind"] == "result" and plan["status"] not in RESULT_STATUSES:
+        plan["status"] = RESULT_STATUSES[0]
     for key in PLAN_NUM_KEYS:
         plan[key] = to_num(raw.get(key))
     if plan["progress"] is not None:

@@ -449,6 +449,9 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .pi-dim select { opacity: .45; }
 .pi-table td select.pi-delayed { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); font-weight: 700; }
 .pi-table td select.pi-skipped { background: var(--surface-2); color: var(--text-2); font-weight: 700; }
+.pi-delays { margin-bottom: 16px; border-color: var(--danger); }
+.pi-delays .card-head h3 { color: var(--danger); }
+.pi-delays tr.pi-resolved td { color: var(--text-3); }
 .pi-table td input.pi-reason { display: block; margin-top: 4px; font-size: 11px; }
 .pi-hbar { position: relative; flex: 1; min-width: 160px; height: 10px; border-radius: 5px; background: var(--border); display: flex; overflow: visible; }
 .pi-hbar span { height: 100%; }
