@@ -71,15 +71,29 @@
       var plans = filteredPlans();
 
       var bar = U.el('div', { class: 'filterbar' });
+      // 「本日」（1日表示）のときは 1 日ずつ移動し、「今日」で当日だけを表示する
+      var oneDay = B.span === 1, step = oneDay ? 1 : 7;
+      function homeStart() { return oneDay ? U.today() : U.addDays(U.today(), -2); }
       bar.appendChild(U.el('div', { class: 'row-flex', style: { marginTop: '12px' } }, [
-        U.el('button', { class: 'btn btn-sm', text: '‹‹', onclick: function () { B.start = U.addDays(B.start, -7); App.render(); } }),
-        U.el('button', { class: 'btn btn-sm', text: '今日', onclick: function () { B.start = U.addDays(U.today(), -2); App.render(); } }),
-        U.el('button', { class: 'btn btn-sm', text: '››', onclick: function () { B.start = U.addDays(B.start, 7); App.render(); } })
+        U.el('button', { class: 'btn btn-sm', text: '‹‹', title: oneDay ? '前日' : '7日前', onclick: function () { B.start = U.addDays(B.start, -step); App.render(); } }),
+        U.el('button', { class: 'btn btn-sm', text: '今日', onclick: function () { B.start = homeStart(); App.render(); } }),
+        U.el('button', { class: 'btn btn-sm', text: '››', title: oneDay ? '翌日' : '7日後', onclick: function () { B.start = U.addDays(B.start, step); App.render(); } })
       ]));
       bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: '表示日数' }),
       (function () {
-        var s = U.el('select', { onchange: function () { B.span = parseInt(this.value, 10); App.render(); } });
-        [7, 14].forEach(function (n) { s.appendChild(U.el('option', { value: n, text: n + '日', selected: B.span === n })); });
+        var s = U.el('select', {
+          onchange: function () {
+            var n = parseInt(this.value, 10);
+            // 「本日」は当日だけを表示する。本日から 7・14 日に戻すときは、その日の 2 日前から表示する
+            if (n === 1) B.start = U.today();
+            else if (B.span === 1) B.start = U.addDays(B.start, -2);
+            B.span = n;
+            App.render();
+          }
+        });
+        [[1, '本日'], [7, '7日'], [14, '14日']].forEach(function (o) {
+          s.appendChild(U.el('option', { value: o[0], text: o[1], selected: B.span === o[0] }));
+        });
         return s;
       })()]));
       function sel(label, key, options) {
@@ -134,7 +148,8 @@
 
       // 日付ごとに ☀予定・🌙実績 の2列（種別で絞り込んだときはその列だけ）
       var cols = B.kind ? [B.kind] : ['plan', 'result'];
-      var COL_W = cols.length > 1 ? '104px' : '130px';
+      // 1日表示のときは列を広げてカードを読みやすくする
+      var COL_W = oneDay ? (cols.length > 1 ? '360px' : '560px') : (cols.length > 1 ? '104px' : '130px');
       function dayBg(d, iso, head) {
         if (iso === todayIso) return head ? 'var(--primary-soft)' : '#f5f9ff';
         return U.isWeekend(d) ? (head ? '#fef2f2' : '#fffafa') : null;
