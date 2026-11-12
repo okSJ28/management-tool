@@ -182,6 +182,11 @@
     U.openDrawer(base && base.id ? '取組み予定を編集' : '取組み予定を登録', grid, foot);
   }
 
+  /* 開始日を過ぎても、日次入力の実績が 1 件も紐づいていない取組み予定（完了・中止は除く）。遅延と同じく赤く目立たせる */
+  function noResultYet(a, roll, todayIso) {
+    return a.status !== '完了' && a.status !== '中止' && !!a.date && a.date < todayIso && !roll.results.length;
+  }
+
   /* ------------------------------------------------ 予定表 */
   Views.planAssign = {
     title: '取組み予定',
@@ -311,11 +316,13 @@
         var resultDays = {}, planDays = {};
         roll.results.forEach(function (r) { resultDays[r.date] = true; });
         State.dailyOf(a.id, 'plan').forEach(function (r) { planDays[r.date] = true; });
+        var missing = noResultYet(a, roll, todayIso);
         var tr = U.el('tr', {
-          style: { cursor: 'pointer' },
+          style: { cursor: 'pointer', background: missing ? 'var(--danger-soft)' : null },
+          title: missing ? '開始日（' + U.fmtDateFull(a.date) + '）を過ぎていますが、日次入力の実績が 1 件も紐づいていません' : null,
           onclick: function () { editor(a, function () { App.render(); }); }
         });
-        tr.appendChild(U.el('td', { class: 'col-pin' }, [
+        tr.appendChild(U.el('td', { class: 'col-pin', style: { boxShadow: missing ? 'inset 3px 0 0 var(--danger)' : null } }, [
           U.el('span', {
             class: 'avatar', style: {
               background: U.colorOf(a.member), width: '18px', height: '18px', flex: '0 0 18px',
@@ -328,6 +335,10 @@
           U.el('span', { class: 'chip', style: { background: color + '1f', color: color }, text: a.category || '—' })
         ]));
         tr.appendChild(U.el('td', { class: 'col-pin' }, [
+          missing ? U.el('div', {
+            class: 'strong', text: '⚠ 実績なし',
+            style: { display: 'inline-block', background: 'var(--danger)', color: '#fff', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', fontSize: '10px' }
+          }) : null,
           U.el('div', { class: 'strong', style: { fontSize: '11.5px' }, text: a.title || '(作業内容未設定)' }),
           U.el('div', {
             class: 'muted', style: {
@@ -351,7 +362,8 @@
             U.el('span', { style: { width: (roll.progress || 0) + '%', background: color } })
           ]),
           U.el('div', {
-            class: 'muted', style: { fontSize: '10px', marginTop: '2px' },
+            class: missing ? 'strong' : 'muted',
+            style: { fontSize: '10px', marginTop: '2px', color: missing ? 'var(--danger)' : null },
             text: roll.progress === null ? '実績未入力' : roll.progress + '%'
           })
         ]));
@@ -391,7 +403,9 @@
         U.el('div', { class: 'muted', style: { fontSize: '11px' } }, [
           U.el('span', { text: '帯 = 取組み期間 / ' }),
           U.el('span', { style: { fontWeight: 700 }, text: '✓ 濃い色 = 実績入力あり' }),
-          U.el('span', { text: ' / 破線 = 日次予定のみ　行クリックで編集' })
+          U.el('span', { text: ' / 破線 = 日次予定のみ / ' }),
+          U.el('span', { style: { fontWeight: 700, color: 'var(--danger)' }, text: '赤い行（⚠ 実績なし）= 開始日を過ぎても実績が紐づいていない' }),
+          U.el('span', { text: '　行クリックで編集' })
         ])
       ]));
       root.appendChild(card);
