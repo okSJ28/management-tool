@@ -83,7 +83,9 @@
       type: 'number', step: '0.5', min: '0',
       value: draft.hours === null || draft.hours === undefined ? '' : draft.hours
     }, 'hours', U.num), false, '期間全体の合計工数');
-    field('ステータス', select(State.masters.planStatuses || [], 'status', 'value'));
+    // 予定・実施中・完了は、紐づく実績を保存したときに自動で切り替わる（手で変えた値も上書き。中止は変えない）
+    field('ステータス', select(State.masters.planStatuses || [], 'status', 'value'), false,
+      '実績を保存すると自動で切り替わります（実績なし＝予定／実績あり＝実施中／最新の進捗 100%＝完了。中止は変えません）');
 
     var projectInput = U.el('input', { type: 'text', value: draft.project || '', list: projectDatalist() });
     projectInput.addEventListener('input', function () { draft.project = this.value || null; });

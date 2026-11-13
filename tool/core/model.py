@@ -286,6 +286,8 @@ PLAN_NUM_KEYS = ("hours", "actualHours", "progress")
 # delayResolvedAt / delayResolvedBy = 遅延の result の解消を登録した日（YYYY-MM-DD）と登録者。未解消は空
 PLAN_KINDS = ("plan", "result", "assignment")
 RESULT_STATUSES = ("予定通り", "遅延")
+# 取組み予定（assignment）のステータスのうち、紐づく実績から自動で切り替えるもの（実績なし / 実績あり / 最新の進捗 100）
+ASSIGNMENT_AUTO_STATUSES = ("予定", "実施中", "完了")
 
 
 def normalize_plan(raw: dict) -> dict:

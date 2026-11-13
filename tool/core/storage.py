@@ -26,6 +26,8 @@ _PLAN_PROJECTS_MIGRATION = "planProjectsRemovedAt"
 # meta key recording that 0h results / 0h plans were converted to 未実施 / 予定外
 _PLAN_NOT_DONE_MIGRATION = "planNotDoneMigratedAt"
 # meta key recording that result statuses (実施中・完了など) were converted to 予定通り
+# meta key recording that assignment statuses were brought in line with their results
+_ASSIGNMENT_STATUS_MIGRATION = "assignmentStatusMigratedAt"
 _RESULT_STATUS_MIGRATION = "resultStatusMigratedAt"
 
 
@@ -133,6 +135,7 @@ class Store:
             self._migrate_plan_projects()
             self._migrate_not_done()
             self._migrate_result_status()
+            self._migrate_assignment_status()
             return base
 
     def _migrate_plan_projects(self) -> None:
@@ -204,6 +207,62 @@ class Store:
             self.save()
         if not DB.get_meta(_RESULT_STATUS_MIGRATION):
             DB.set_meta(_RESULT_STATUS_MIGRATION, _now())
+
+    def _migrate_assignment_status(self) -> None:
+        """One-off: 実績が入っているのに「予定」のまま、最新の進捗が 100 なのに「完了」でない取組み予定を直す。
+
+        以前はステータスを実績から自動で切り替えていなかった。手で選んだ値を戻さないよう、
+        予定 → 実施中 → 完了 の向きにだけ進める（中止・実績のない実施中などはそのまま）。
+        """
+        if DB.get_meta(_ASSIGNMENT_STATUS_MIGRATION):
+            return
+        rank = {status: i for i, status in enumerate(model.ASSIGNMENT_AUTO_STATUSES)}
+        changed = False
+        for a in self._data.get("plans", []):
+            if a.get("kind") != "assignment" or a.get("status") not in rank:
+                continue
+            status = self._assignment_status(a.get("id"))
+            if rank[status] > rank[a["status"]]:
+                a["status"] = status
+                self._mark_plan(a)
+                changed = True
+        if changed:
+            self.save()
+        DB.set_meta(_ASSIGNMENT_STATUS_MIGRATION, _now())
+
+    # ------------------------------------- 取組み予定のステータス（実績から自動）
+    def _assignment_status(self, assignment_id: str | None) -> str:
+        """紐づく実績から取組み予定のステータスを決める。
+
+        実績なし = 予定 / 最新の進捗（日付順、同じ日は更新の新しい方）が 100 = 完了 / それ以外 = 実施中。
+        画面の「進捗」（State.assignmentRollup）と同じ判定。
+        """
+        results = sorted(
+            (p for p in self._data.get("plans", [])
+             if p.get("kind") == "result" and assignment_id and p.get("assignmentId") == assignment_id),
+            key=lambda p: (p.get("date") or "", p.get("updatedAt") or ""))
+        pending, doing, done = model.ASSIGNMENT_AUTO_STATUSES
+        if not results:
+            return pending
+        latest = next((p.get("progress") for p in reversed(results) if p.get("progress") is not None), None)
+        return done if latest == 100 else doing
+
+    def _sync_assignment_status(self, ids) -> None:
+        """実績の保存・削除で紐づく実績が変わった取組み予定のステータスを、実績に合わせて切り替える。
+
+        手で選んだステータスも、次に実績を保存したときに上書きする。中止は手で選んだまま変えない。
+        """
+        ids = {i for i in ids if i}
+        if not ids:
+            return
+        for a in self._data.get("plans", []):
+            if a.get("kind") != "assignment" or a.get("id") not in ids or a.get("status") == "中止":
+                continue
+            status = self._assignment_status(a["id"])
+            if a.get("status") != status:
+                a["status"] = status
+                a["updatedAt"] = _now()
+                self._mark_plan(a)
 
     def save(self) -> None:
         with _LOCK:
@@ -456,6 +515,7 @@ class Store:
             plan["updatedBy"] = user or plan.get("updatedBy")
             data.setdefault("plans", []).append(plan)
             self._mark_plan(plan)
+            self._sync_assignment_status([plan.get("assignmentId")])
             self._sync_plan_masters()
             self.save()
             return plan
@@ -473,6 +533,7 @@ class Store:
                     updated["updatedBy"] = user or plan.get("updatedBy")
                     plans[index] = updated
                     self._mark_plan(updated)
+                    self._sync_assignment_status([plan.get("assignmentId"), updated.get("assignmentId")])
                     self._sync_plan_masters()
                     self.save()
                     return updated
@@ -484,10 +545,12 @@ class Store:
             target = set(ids)
             plans = data.setdefault("plans", [])
             before = len(plans)
+            linked = [p.get("assignmentId") for p in plans if p.get("id") in target]
             data["plans"] = [p for p in plans if p.get("id") not in target]
             removed = before - len(data["plans"])
             if removed:
                 self._mark_plan_deleted(target)
+                self._sync_assignment_status(linked)
                 self.save()
             return removed
 
@@ -504,6 +567,7 @@ class Store:
                 data.setdefault("plans", []).append(plan)
                 self._mark_plan(plan)
                 created.append(plan)
+            self._sync_assignment_status([raw.get("assignmentId")])
             self._sync_plan_masters()
             self.save()
             return created
@@ -532,6 +596,8 @@ class Store:
 
             removed = 0
             target = {i for i in (delete_ids or []) if i}
+            # 紐づく実績が変わる取組み予定（削除する記録・保存前後の記録の紐づけ先）
+            linked = [p.get("assignmentId") for p in plans if p.get("id") in target]
             if target:
                 before = len(plans)
                 plans = [p for p in plans if p.get("id") not in target]
@@ -546,6 +612,7 @@ class Store:
                 plan_id = raw.get("id")
                 if plan_id and plan_id in by_id:
                     old = plans[by_id[plan_id]]
+                    linked.append(old.get("assignmentId"))
                     plan = model.normalize_plan({**old, **raw, "id": plan_id})
                     plan["id"] = plan_id
                     plan["createdAt"] = old.get("createdAt")
@@ -564,8 +631,10 @@ class Store:
                     added += 1
                 self._mark_plan(plan)
                 saved.append(plan)
+                linked.append(plan.get("assignmentId"))
 
             if added or updated or removed:
+                self._sync_assignment_status(linked)
                 self._sync_plan_masters()
                 self.save()
             return {"plans": saved, "added": added, "updated": updated, "removed": removed}
