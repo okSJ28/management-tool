@@ -7,8 +7,24 @@
 
   var F = {
     type: 'mfg', keyword: '', assignee: '', project: '', status: '', kubun: '',
-    resource: '', system: '', from: '', to: '', quick: '', sortKey: 'endDate', sortAsc: false
+    resource: '', system: '', from: '', to: '', quick: '', sortKey: 'endDate', sortAsc: false, more: false
   };
+  // 「詳細条件」に折りたたむ絞り込み
+  var MORE_KEYS = ['project', 'status', 'kubun', 'resource', 'from', 'to'];
+  // 一覧の見出しの上に出すグループの色（fields.json の group）
+  var GROUP_COLORS = {
+    basic: '#475569', scale: '#2563eb', sched: '#0d9488', quality: '#d97706',
+    effort: '#7c3aed', etc: '#64748b', calc: '#94a3b8'
+  };
+  // 帯は元になる入力のグループにまとめる（合計は入力のグループへ、ステータスは基本情報へ）。それ以外の算出指標は「算出指標」
+  var BAND_OF = { status: 'basic', convStep: 'scale', totalHour: 'effort', issueTotal: 'quality', durationDays: 'sched' };
+  function bandOf(key) { return BAND_OF[key] || State.field(key).group; }
+
+  /* ログイン中の人が担当者のときだけ「自分の担当」を出す */
+  function myMember() {
+    var me = State.user();
+    return State.members().indexOf(me) >= 0 ? me : '';
+  }
   var selected = new Set();
   var columns = {};
 
@@ -49,6 +65,7 @@
       if (F.quick === 'doing' && !(t.effectiveStatus === E.doing || t.effectiveStatus === E.review)) return false;
       if (F.quick === 'todo' && t.effectiveStatus !== E.todo) return false;
       if (F.quick === 'nohour' && t.totalHour) return false;
+      if (F.quick === 'mine' && t.assignee1 !== myMember() && t.assignee2 !== myMember()) return false;
       if (kw || globalKw) {
         var hay = [t.programId, t.project, t.assignee1, t.assignee2, t.resource, t.system, t.note, t.tags]
           .filter(Boolean).join(' ').toLowerCase();
@@ -84,14 +101,14 @@
     });
     bar.appendChild(seg);
 
-    function sel(label, key, options, formatter) {
+    function sel(label, key, options, target) {
       var s = U.el('select', { onchange: function () { F[key] = this.value; savePrefs(); rerender(); } });
       s.appendChild(U.el('option', { value: '', text: '(すべて)' }));
       options.forEach(function (o) {
-        s.appendChild(U.el('option', { value: o, text: formatter ? formatter(o) : o, selected: F[key] === o }));
+        s.appendChild(U.el('option', { value: o, text: o, selected: F[key] === o }));
       });
       s.value = F[key] || '';
-      bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
+      (target || bar).appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
     }
 
     bar.appendChild(U.el('div', { class: 'fld' }, [
@@ -103,23 +120,12 @@
       })
     ]));
     sel('担当者', 'assignee', State.members());
-    sel('案件', 'project', State.taskProjects());
-    sel('ステータス', 'status', State.options('status'));
-    sel('区分', 'kubun', State.options('kubun'));
-    sel('リソース区分', 'resource', U.uniq(State.tasks.map(function (t) { return t.resource; })).sort());
-
-    bar.appendChild(U.el('div', { class: 'fld' }, [
-      U.el('label', { text: '期間 開始' }),
-      U.el('input', { type: 'date', value: F.from, onchange: function () { F.from = this.value; savePrefs(); rerender(); } })
-    ]));
-    bar.appendChild(U.el('div', { class: 'fld' }, [
-      U.el('label', { text: '期間 終了' }),
-      U.el('input', { type: 'date', value: F.to, onchange: function () { F.to = this.value; savePrefs(); rerender(); } })
-    ]));
 
     var quick = U.el('div', { class: 'fld' }, [U.el('label', { text: 'クイック' })]);
     var qseg = U.el('div', { class: 'seg' });
-    [['', 'なし'], ['doing', '進行中'], ['todo', '予定'], ['late', '遅延'], ['nohour', '工数未入力']].forEach(function (q) {
+    var quicks = [['', 'なし'], ['doing', '進行中'], ['todo', '予定'], ['late', '遅延'], ['nohour', '工数未入力']];
+    if (myMember()) quicks.splice(1, 0, ['mine', '自分の担当']);
+    quicks.forEach(function (q) {
       qseg.appendChild(U.el('button', {
         class: F.quick === q[0] ? 'on' : '', text: q[1],
         onclick: function () { F.quick = q[0]; savePrefs(); rerender(); }
@@ -128,7 +134,15 @@
     quick.appendChild(qseg);
     bar.appendChild(quick);
 
+    // よく使わない条件は「詳細条件」に折りたたむ（指定中の数をボタンに出す）
+    var moreSet = MORE_KEYS.filter(function (k) { return F[k]; }).length;
     bar.appendChild(U.el('div', { class: 'spacer' }));
+    bar.appendChild(U.el('button', {
+      class: 'btn btn-sm' + (moreSet ? ' btn-more-on' : ''),
+      text: '詳細条件' + (moreSet ? '（' + moreSet + '）' : '') + (F.more ? ' ▾' : ' ▸'),
+      title: '案件・ステータス・区分・リソース区分・期間で絞り込みます',
+      onclick: function () { F.more = !F.more; savePrefs(); rerender(); }
+    }));
     bar.appendChild(U.el('button', {
       class: 'btn btn-sm', text: '⟲ 条件クリア', onclick: function () {
         Object.assign(F, { keyword: '', assignee: '', project: '', status: '', kubun: '', resource: '', system: '', from: '', to: '', quick: '' });
@@ -136,6 +150,23 @@
       }
     }));
     bar.appendChild(U.el('button', { class: 'btn btn-sm', text: '⚙ 列表示', onclick: function () { openColumnChooser(rerender); } }));
+
+    if (F.more) {
+      var more = U.el('div', { class: 'filter-more' });
+      sel('案件', 'project', State.taskProjects(), more);
+      sel('ステータス', 'status', State.options('status'), more);
+      sel('区分', 'kubun', State.options('kubun'), more);
+      sel('リソース区分', 'resource', U.uniq(State.tasks.map(function (t) { return t.resource; })).sort(), more);
+      more.appendChild(U.el('div', { class: 'fld' }, [
+        U.el('label', { text: '期間 開始' }),
+        U.el('input', { type: 'date', value: F.from, onchange: function () { F.from = this.value; savePrefs(); rerender(); } })
+      ]));
+      more.appendChild(U.el('div', { class: 'fld' }, [
+        U.el('label', { text: '期間 終了' }),
+        U.el('input', { type: 'date', value: F.to, onchange: function () { F.to = this.value; savePrefs(); rerender(); } })
+      ]));
+      bar.appendChild(more);
+    }
     return bar;
   }
 
@@ -185,6 +216,18 @@
     var table = U.el('table', { class: 'grid-table' });
 
     var thead = U.el('thead');
+    var lead = F.type === 'all' ? 4 : 3;
+    var gr = U.el('tr', { class: 'grp-row' }, [U.el('th', { colspan: lead })]);
+    cols.forEach(function (key, i) {
+      var g = bandOf(key);
+      if (i > 0 && bandOf(cols[i - 1]) === g) { gr.lastChild.colSpan += 1; return; }
+      var color = GROUP_COLORS[g] || '#64748b';
+      var label = (State.schema.groups.filter(function (x) { return x.key === g; })[0] || {}).label || '';
+      gr.appendChild(U.el('th', {
+        colspan: 1, style: { color: color, background: color + '14', borderTop: '3px solid ' + color }, text: label
+      }));
+    });
+    thead.appendChild(gr);
     var hr = U.el('tr');
     hr.appendChild(U.el('th', { style: { width: '30px' } }, [
       U.el('input', {
@@ -203,8 +246,9 @@
     cols.forEach(function (key) {
       var f = State.field(key);
       hr.appendChild(U.el('th', {
+        class: f.type === 'calc' ? 'col-calc' : '',
         style: { minWidth: (f.width || 100) + 'px' },
-        title: f.help || f.label,
+        title: f.type === 'calc' ? '自動計算（入力不可）' + (f.help ? '：' + f.help : '') : (f.help || f.label),
         onclick: function () {
           if (F.sortKey === key) F.sortAsc = !F.sortAsc; else { F.sortKey = key; F.sortAsc = true; }
           savePrefs(); rerender();
@@ -277,7 +321,7 @@
     var f = State.field(key);
     var value = task[key];
     var isNum = f.type === 'number' || f.type === 'calc';
-    var td = U.el('td', { class: (isNum ? 'num ' : '') + (f.type === 'calc' || f.readonly ? '' : 'editable') });
+    var td = U.el('td', { class: (isNum ? 'num ' : '') + (f.type === 'calc' ? 'col-calc' : f.readonly ? '' : 'editable') });
 
     if (key === 'status') {
       td.className = '';

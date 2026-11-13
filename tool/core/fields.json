@@ -86,6 +86,7 @@
     {
       "key": "baseStep",
       "label": "母体step",
+      "unit": "step",
       "type": "number",
       "group": "scale",
       "types": ["mfg"],
@@ -96,6 +97,7 @@
     {
       "key": "newStep",
       "label": "新規step",
+      "unit": "step",
       "type": "number",
       "group": "scale",
       "types": ["mfg"],
@@ -106,6 +108,7 @@
     {
       "key": "modStep",
       "label": "修正step",
+      "unit": "step",
       "type": "number",
       "group": "scale",
       "types": ["mfg"],
@@ -177,6 +180,7 @@
     {
       "key": "progress",
       "label": "進捗率(%)",
+      "unit": "%",
       "fold": true,
       "type": "number",
       "group": "sched",
@@ -187,6 +191,7 @@
     {
       "key": "issueCode",
       "label": "指摘(コーディング)",
+      "unit": "件",
       "type": "number",
       "group": "quality",
       "types": ["mfg"],
@@ -197,6 +202,7 @@
     {
       "key": "issueCheck",
       "label": "指摘(チェックリスト)",
+      "unit": "件",
       "type": "number",
       "group": "quality",
       "types": ["mfg"],
@@ -207,6 +213,7 @@
     {
       "key": "issueVerify",
       "label": "指摘(検証資料)",
+      "unit": "件",
       "type": "number",
       "group": "quality",
       "types": ["mfg"],
@@ -217,6 +224,7 @@
     {
       "key": "defect",
       "label": "障害発生件数",
+      "unit": "件",
       "type": "number",
       "group": "quality",
       "types": ["mfg"],
@@ -227,6 +235,7 @@
     {
       "key": "pages",
       "label": "設計書頁数",
+      "unit": "頁",
       "type": "number",
       "group": "scale",
       "types": ["dd"],
@@ -237,6 +246,7 @@
     {
       "key": "issues",
       "label": "指摘件数",
+      "unit": "件",
       "type": "number",
       "group": "quality",
       "types": ["dd"],
@@ -247,6 +257,7 @@
     {
       "key": "hourMake",
       "label": "工数 製造(h)",
+      "unit": "h",
       "type": "number",
       "group": "effort",
       "types": ["mfg"],
@@ -257,6 +268,7 @@
     {
       "key": "hourCheck",
       "label": "工数 チェックリスト(h)",
+      "unit": "h",
       "type": "number",
       "group": "effort",
       "types": ["mfg"],
@@ -267,6 +279,7 @@
     {
       "key": "hourVerify",
       "label": "工数 検証資料(h)",
+      "unit": "h",
       "type": "number",
       "group": "effort",
       "types": ["mfg"],
@@ -277,6 +290,7 @@
     {
       "key": "hourDesign",
       "label": "詳細設計 時間(h)",
+      "unit": "h",
       "type": "number",
       "group": "effort",
       "types": ["dd"],
@@ -404,6 +418,7 @@
     {
       "key": "compileCount",
       "label": "コンパイル回数",
+      "unit": "回",
       "fold": true,
       "type": "number",
       "group": "etc",
@@ -415,6 +430,7 @@
     {
       "key": "compileMain",
       "label": "コンパイル内訳 MAIN",
+      "unit": "回",
       "fold": true,
       "type": "number",
       "group": "etc",

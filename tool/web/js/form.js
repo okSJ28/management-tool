@@ -141,6 +141,9 @@
     var wrap = U.el('div');
     var calcValues = {};
     var cells = {};
+    var sections = [];
+
+    function isBlank(v) { return v === null || v === undefined || v === ''; }
 
     function rebuildCalc() {
       Calc.compute(draft);
@@ -157,6 +160,17 @@
         cells[k].classList.toggle('field-dim', off);
         cells[k].title = off ? '区分が「' + draft.kubun + '」のときは入力不要です' : '';
       });
+      // 見出しごとの入力済みの数（薄く表示している step 欄は数えない）
+      sections.forEach(function (sec) {
+        var keys = sec.keys.filter(function (k) { return unused.indexOf(k) < 0; });
+        var done = keys.filter(function (k) { return !isBlank(draft[k]); }).length;
+        sec.count.textContent = '入力済み ' + done + '/' + keys.length;
+        sec.count.classList.toggle('done', done === keys.length);
+      });
+      // 空いている必須欄（プログラムID・案件名のどちらか）と、実績入力では空いている実績の欄に色を付ける
+      var need = (isBlank(draft.programId) && isBlank(draft.project)) ? ['programId', 'project'] : [];
+      if (opts.highlightActual) need = need.concat(actualKeys(draft).filter(function (k) { return isBlank(draft[k]); }));
+      Object.keys(cells).forEach(function (k) { cells[k].classList.toggle('field-need', need.indexOf(k) >= 0); });
     }
 
     var typeField = U.el('div', { class: 'field span2' }, [
@@ -181,16 +195,19 @@
 
     function fieldCell(f) {
       var cell = U.el('div', { class: 'field' + (f.type === 'textarea' || f.key === 'project' ? ' span2' : '') });
+      var eitherReq = f.key === 'programId' || f.key === 'project';
       cell.appendChild(U.el('label', {}, [
         document.createTextNode(f.label),
-        f.required ? U.el('span', { class: 'req', text: '*' }) : null,
-        (f.key === 'programId' || f.key === 'project') ? U.el('span', { class: 'req', text: '※プログラムID・案件名のどちらか必須' }) : null
+        eitherReq ? U.el('span', { class: 'req-badge', title: 'プログラムID・案件名のどちらかは必ず入力してください', text: 'どちらか必須' })
+          : f.required ? U.el('span', { class: 'req', text: '*' }) : null
       ]));
-      cell.appendChild(control(f, draft[f.key], function (v) {
+      var input = control(f, draft[f.key], function (v) {
         draft[f.key] = v;
         rebuildCalc();
         opts.onChange && opts.onChange(draft);
-      }));
+      });
+      // 単位（step / h / 件 など）は入力欄の右端に出す
+      cell.appendChild(f.unit ? U.el('div', { class: 'input-unit' }, [input, U.el('span', { class: 'unit', text: f.unit })]) : input);
       if (f.help) cell.appendChild(U.el('div', { class: 'hint', text: f.help }));
       cells[f.key] = cell;
       return cell;
@@ -201,11 +218,16 @@
 
     // 自動計算の項目は入力欄にせず下の「計算結果」にまとめ、使われていない項目（fold）は折りたたむ
     var fields = State.fieldsOf(draft.type).filter(function (f) { return f.key !== 'type' && f.type !== 'calc'; });
+    var NUM = '①②③④⑤⑥⑦⑧⑨';
     State.schema.groups.forEach(function (group) {
       if (opts.groups && opts.groups.indexOf(group.key) < 0) return;
       var list = fields.filter(function (f) { return f.group === group.key && !f.fold; });
       if (!list.length) return;
-      grid.appendChild(U.el('div', { class: 'fieldset-title', text: group.label }));
+      var count = U.el('span', { class: 'fs-count' });
+      grid.appendChild(U.el('div', { class: 'fieldset-title' }, [
+        document.createTextNode(NUM.charAt(sections.length) + ' ' + group.label), count
+      ]));
+      sections.push({ keys: list.map(function (f) { return f.key; }), count: count });
       list.forEach(function (f) { grid.appendChild(fieldCell(f)); });
     });
     wrap.appendChild(grid);
@@ -248,8 +270,12 @@
     var isNew = !task || !task.id;
     var actualMode = !isNew && opts.mode === 'actual';
     var base = task || { type: 'mfg', status: '', progress: null };
+    // 新規登録の担当者①は、ログイン中の人が担当者ならその人を初期値にする
+    if (isNew && !base.assignee1 && State.members().indexOf(State.user()) >= 0) {
+      base = Object.assign({}, base, { assignee1: State.user() });
+    }
     var form = buildForm(base, actualMode
-      ? { hideType: true, groups: ACTUAL_GROUPS }
+      ? { hideType: true, groups: ACTUAL_GROUPS, highlightActual: true }
       : { onRebuild: function (b) { form = b; } });
     var foot = [];
     var saving = false;
@@ -332,7 +358,7 @@
       U.el('div', { class: 'actual-meta' }, info.map(function (x) {
         return U.el('span', {}, [U.el('span', { class: 'muted', text: x[0] + ' ' }), document.createTextNode(x[1])]);
       })),
-      U.el('div', { class: 'hint', text: '白い欄に実績を入力して保存してください。区分で使わない step 欄は薄く表示しています。' })
+      U.el('div', { class: 'hint', text: 'オレンジ枠の欄が未入力の実績です。入力して保存してください。区分で使わない step 欄は薄く表示しています。' })
     ]);
   }
 
