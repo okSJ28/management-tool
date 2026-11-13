@@ -112,19 +112,50 @@
     return v === '' ? null : v;
   }
 
+  /* ---------------------------------------------- 実績の項目 */
+  // 実績入力で開くグループ（規模・品質・工数）
+  var ACTUAL_GROUPS = ['scale', 'quality', 'effort'];
+
+  function isNewKubun(task) { return String(task.kubun || '').trim() === State.enums.kubun.new; }
+
+  /* 実績として入れる項目。製造の step は区分で変わる（新規: 新規step ／ それ以外: 母体step・修正step） */
+  function actualKeys(task) {
+    if (task.type === 'dd') return ['pages', 'issues', 'hourDesign'];
+    var steps = isNewKubun(task) ? ['newStep'] : ['baseStep', 'modStep'];
+    return steps.concat(['issueCode', 'issueCheck', 'issueVerify', 'hourMake', 'hourCheck', 'hourVerify']);
+  }
+
+  /* 工数が 1 つも入っていなければ実績未入力 */
+  function needsActual(task) { return U.num(task.totalHour) === null; }
+
+  /* 区分で使わない step 欄（区分が未選択なら無し） */
+  function unusedStepKeys(task) {
+    if (task.type !== 'mfg' || !task.kubun) return [];
+    return isNewKubun(task) ? ['baseStep', 'modStep'] : ['newStep'];
+  }
+
   /* ---------------------------------------------- フォーム本体 */
   function buildForm(task, opts) {
     opts = opts || {};
     var draft = Object.assign({}, task);
     var wrap = U.el('div');
-    var calcInputs = {};
+    var calcValues = {};
+    var cells = {};
 
     function rebuildCalc() {
       Calc.compute(draft);
-      Object.keys(calcInputs).forEach(function (k) {
+      Object.keys(calcValues).forEach(function (k) {
         var f = State.field(k);
         var v = draft[k];
-        calcInputs[k].value = (v === null || v === undefined) ? '' : U.fmtNum(v, f.decimals);
+        calcValues[k].textContent = (v === null || v === undefined) ? '—' : U.fmtNum(v, f.decimals);
+      });
+      // 区分で使わない step 欄は薄く表示する（入力はできる）
+      var unused = unusedStepKeys(draft);
+      ['baseStep', 'newStep', 'modStep'].forEach(function (k) {
+        if (!cells[k]) return;
+        var off = unused.indexOf(k) >= 0;
+        cells[k].classList.toggle('field-dim', off);
+        cells[k].title = off ? '区分が「' + draft.kubun + '」のときは入力不要です' : '';
       });
     }
 
@@ -148,45 +179,78 @@
       })()
     ]);
 
+    function fieldCell(f) {
+      var cell = U.el('div', { class: 'field' + (f.type === 'textarea' || f.key === 'project' ? ' span2' : '') });
+      cell.appendChild(U.el('label', {}, [
+        document.createTextNode(f.label),
+        f.required ? U.el('span', { class: 'req', text: '*' }) : null,
+        (f.key === 'programId' || f.key === 'project') ? U.el('span', { class: 'req', text: '※プログラムID・案件名のどちらか必須' }) : null
+      ]));
+      cell.appendChild(control(f, draft[f.key], function (v) {
+        draft[f.key] = v;
+        rebuildCalc();
+        opts.onChange && opts.onChange(draft);
+      }));
+      if (f.help) cell.appendChild(U.el('div', { class: 'hint', text: f.help }));
+      cells[f.key] = cell;
+      return cell;
+    }
+
     var grid = U.el('div', { class: 'form-grid' });
     if (!opts.hideType) grid.appendChild(typeField);
 
+    // 自動計算の項目は入力欄にせず下の「計算結果」にまとめ、使われていない項目（fold）は折りたたむ
+    var fields = State.fieldsOf(draft.type).filter(function (f) { return f.key !== 'type' && f.type !== 'calc'; });
     State.schema.groups.forEach(function (group) {
-      var fields = State.fieldsOf(draft.type).filter(function (f) {
-        return f.group === group.key && f.key !== 'type';
-      });
-      if (!fields.length) return;
+      if (opts.groups && opts.groups.indexOf(group.key) < 0) return;
+      var list = fields.filter(function (f) { return f.group === group.key && !f.fold; });
+      if (!list.length) return;
       grid.appendChild(U.el('div', { class: 'fieldset-title', text: group.label }));
-      fields.forEach(function (f) {
-        var cell = U.el('div', { class: 'field' + (f.type === 'textarea' || f.key === 'project' ? ' span2' : '') });
-        cell.appendChild(U.el('label', {}, [
-          document.createTextNode(f.label),
-          f.required ? U.el('span', { class: 'req', text: '*' }) : null,
-          (f.key === 'programId' || f.key === 'project') ? U.el('span', { class: 'req', text: '※プログラムID・案件名のどちらか必須' }) : null,
-          f.type === 'calc' ? U.el('span', { class: 'hint', text: ' (自動)' }) : null
-        ]));
-        var input = control(f, draft[f.key], function (v) {
-          draft[f.key] = v;
-          rebuildCalc();
-          opts.onChange && opts.onChange(draft);
-        });
-        if (f.type === 'calc') calcInputs[f.key] = input;
-        cell.appendChild(input);
-        if (f.help) cell.appendChild(U.el('div', { class: 'hint', text: f.help }));
-        grid.appendChild(cell);
-      });
+      list.forEach(function (f) { grid.appendChild(fieldCell(f)); });
     });
-
     wrap.appendChild(grid);
+
+    var folded = opts.groups ? [] : fields.filter(function (f) { return f.fold; });
+    if (folded.length) {
+      var filled = folded.filter(function (f) { return draft[f.key] !== null && draft[f.key] !== undefined && draft[f.key] !== ''; }).length;
+      var moreGrid = U.el('div', { class: 'form-grid' });
+      folded.forEach(function (f) { moreGrid.appendChild(fieldCell(f)); });
+      wrap.appendChild(U.el('details', { class: 'form-more' }, [
+        U.el('summary', {}, [
+          document.createTextNode('その他の項目（' + folded.map(function (f) { return f.label; }).join('・') + '）'),
+          filled ? U.el('span', { class: 'form-more-count', text: '入力あり ' + filled + ' 件' }) : null
+        ]),
+        moreGrid
+      ]));
+    }
+
+    var calcFields = State.fieldsOf(draft.type).filter(function (f) { return f.type === 'calc'; });
+    if (calcFields.length) {
+      var calcGrid = U.el('div', { class: 'calc-grid' });
+      calcFields.forEach(function (f) {
+        calcValues[f.key] = U.el('b', { class: 'mono' });
+        calcGrid.appendChild(U.el('div', { class: 'calc-item', title: f.help || '' }, [U.el('span', { text: f.label }), calcValues[f.key]]));
+      });
+      wrap.appendChild(U.el('div', { class: 'calc-panel' }, [
+        U.el('div', { class: 'calc-title', text: '計算結果（入力に合わせて自動計算・入力不要）' }),
+        calcGrid
+      ]));
+    }
+
     rebuildCalc();
     return { node: wrap, draft: draft, refresh: rebuildCalc };
   }
 
   /* ---------------------------------------------- 編集ドロワー */
-  function openEditor(task, onSaved) {
+  /* opts.mode === 'actual' のときは実績（規模・品質・工数）だけを入力するフォームで開く */
+  function openEditor(task, onSaved, opts) {
+    opts = opts || {};
     var isNew = !task || !task.id;
+    var actualMode = !isNew && opts.mode === 'actual';
     var base = task || { type: 'mfg', status: '', progress: null };
-    var form = buildForm(base, { onRebuild: function (b) { form = b; } });
+    var form = buildForm(base, actualMode
+      ? { hideType: true, groups: ACTUAL_GROUPS }
+      : { onRebuild: function (b) { form = b; } });
     var foot = [];
     var saving = false;
 
@@ -206,7 +270,14 @@
         .finally(function () { U.loading(false); });
     }
 
-    foot.push(U.el('button', {
+    if (actualMode) foot.push(U.el('button', {
+      class: 'btn', text: 'すべての項目を編集', onclick: function () {
+        var draft = form.draft;
+        U.closeDrawer();
+        setTimeout(function () { openEditor(draft, onSaved); }, 60);
+      }
+    }));
+    if (!actualMode) foot.push(U.el('button', {
       class: 'btn', text: '複製して新規', onclick: function () {
         var copy = Object.assign({}, form.draft);
         delete copy.id; delete copy.createdAt; delete copy.updatedAt;
@@ -214,7 +285,7 @@
         setTimeout(function () { openEditor(copy, onSaved); }, 60);
       }
     }));
-    if (!isNew) {
+    if (!isNew && !actualMode) {
       foot.push(U.el('button', {
         class: 'btn btn-danger', text: '削除', onclick: function () {
           U.confirmDialog('削除確認', (form.draft.programId || '') + ' を削除します。よろしいですか？', '削除する')
@@ -232,7 +303,8 @@
     foot.push(U.el('button', { class: 'btn', text: 'キャンセル', onclick: U.closeDrawer }));
     foot.push(U.el('button', { class: 'btn btn-primary', text: isNew ? '登録' : '保存', onclick: save }));
 
-    U.openDrawer(isNew ? '新規登録' : ((base.programId || '') + ' を編集'), form.node, foot);
+    var body = actualMode ? U.el('div', {}, [actualHeader(base), form.node]) : form.node;
+    U.openDrawer(isNew ? '新規登録' : actualMode ? '実績入力' : ((base.programId || '') + ' を編集'), body, foot);
 
     document.addEventListener('keydown', function onKey(e) {
       // ドロワーを閉じた後に古いフォームが Ctrl+S で再保存されないようにする
@@ -242,6 +314,26 @@
       if (e.key === 'Escape') { U.closeDrawer(); document.removeEventListener('keydown', onKey); }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
     });
+  }
+
+  /* 実績入力の上に出す、どのタスクかの見出し（編集不可） */
+  function actualHeader(task) {
+    var info = [
+      ['区分', task.kubun], ['リソース区分', task.resource], ['システム', task.system],
+      ['担当者', [task.assignee1, task.assignee2].filter(Boolean).join('・')],
+      ['期間', [task.startDate, task.endDate].filter(Boolean).map(U.fmtDateFull).join(' 〜 ')]
+    ].filter(function (x) { return x[1]; });
+    return U.el('div', { class: 'actual-head' }, [
+      U.el('div', { class: 'row-flex' }, [
+        U.el('span', { class: 'tag', text: State.typeLabel(task.type) }),
+        U.el('b', { class: 'mono', style: { fontSize: '15px' }, text: task.programId || '(ID未設定)' })
+      ]),
+      task.project ? U.el('div', { class: 'muted', text: task.project }) : null,
+      U.el('div', { class: 'actual-meta' }, info.map(function (x) {
+        return U.el('span', {}, [U.el('span', { class: 'muted', text: x[0] + ' ' }), document.createTextNode(x[1])]);
+      })),
+      U.el('div', { class: 'hint', text: '白い欄に実績を入力して保存してください。区分で使わない step 欄は薄く表示しています。' })
+    ]);
   }
 
   /* ---------------------------------------------- 参照ドロワー */
@@ -306,6 +398,7 @@
   global.Calc = Calc;
   global.Form = {
     buildForm: buildForm, openEditor: openEditor, openViewer: openViewer,
+    actualKeys: actualKeys, needsActual: needsActual,
     statusChip: statusChip, displayValue: displayValue, control: control, readValue: readValue
   };
 })(window);

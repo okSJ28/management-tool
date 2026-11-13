@@ -155,6 +155,7 @@
     {
       "key": "assignee2",
       "label": "担当者②",
+      "fold": true,
       "type": "select-free",
       "group": "sched",
       "types": ["mfg", "dd"],
@@ -165,6 +166,7 @@
     {
       "key": "status",
       "label": "ステータス",
+      "fold": true,
       "type": "select",
       "group": "sched",
       "types": ["mfg", "dd"],
@@ -175,6 +177,7 @@
     {
       "key": "progress",
       "label": "進捗率(%)",
+      "fold": true,
       "type": "number",
       "group": "sched",
       "types": ["mfg", "dd"],
@@ -390,6 +393,7 @@
     {
       "key": "editor",
       "label": "使用エディタ",
+      "fold": true,
       "type": "select-free",
       "group": "etc",
       "types": ["mfg"],
@@ -400,6 +404,7 @@
     {
       "key": "compileCount",
       "label": "コンパイル回数",
+      "fold": true,
       "type": "number",
       "group": "etc",
       "types": ["mfg"],
@@ -410,6 +415,7 @@
     {
       "key": "compileMain",
       "label": "コンパイル内訳 MAIN",
+      "fold": true,
       "type": "number",
       "group": "etc",
       "types": ["mfg"],
@@ -429,6 +435,7 @@
     {
       "key": "tags",
       "label": "タグ",
+      "fold": true,
       "type": "text",
       "group": "etc",
       "types": ["mfg", "dd"],
@@ -438,6 +445,7 @@
     {
       "key": "note",
       "label": "備考",
+      "fold": true,
       "type": "textarea",
       "group": "etc",
       "types": ["mfg", "dd"],

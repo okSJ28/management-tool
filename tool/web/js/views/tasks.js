@@ -198,6 +198,7 @@
       })
     ]));
     hr.appendChild(U.el('th', { style: { width: '38px' }, text: '#' }));
+    hr.appendChild(U.el('th', { style: { width: '118px' }, text: '入力' }));
     if (F.type === 'all') hr.appendChild(U.el('th', { text: '種別' }));
     cols.forEach(function (key) {
       var f = State.field(key);
@@ -213,7 +214,6 @@
         F.sortKey === key ? U.el('span', { class: 'sort', text: F.sortAsc ? '▲' : '▼' }) : null
       ]));
     });
-    hr.appendChild(U.el('th', { style: { width: '40px' }, text: '' }));
     thead.appendChild(hr);
     table.appendChild(thead);
 
@@ -228,16 +228,14 @@
         })
       ]));
       tr.appendChild(U.el('td', { class: 'muted', text: String(i + 1) }));
+      tr.appendChild(actionCell(t));
       if (F.type === 'all') tr.appendChild(U.el('td', {}, [U.el('span', { class: 'tag', text: State.typeLabel(t.type) })]));
+      var missing = missingKeys(t);
       cols.forEach(function (key) {
-        tr.appendChild(cellFor(t, key, rerender));
+        var td = cellFor(t, key, rerender);
+        if (missing.indexOf(key) >= 0) { td.classList.add('cell-missing'); td.title = '実績が未入力です'; }
+        tr.appendChild(td);
       });
-      tr.appendChild(U.el('td', {}, [
-        U.el('button', {
-          class: 'icon-btn', text: '⋯', title: '詳細',
-          onclick: function (e) { e.stopPropagation(); Form.openViewer(t, function () { App.render(); }); }
-        })
-      ]));
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -247,6 +245,32 @@
       wrap.appendChild(table);
     }
     return wrap;
+  }
+
+  /* 実績未入力の行は「実績入力」、入力済みの行は「編集」。⋯ は参照表示 */
+  function actionCell(t) {
+    var pending = Form.needsActual(t);
+    return U.el('td', {}, [U.el('div', { class: 'row-actions' }, [
+      U.el('button', {
+        class: 'btn btn-sm row-action' + (pending ? ' btn-primary' : ''), text: pending ? '実績入力' : '編集',
+        title: pending ? '工数・step・指摘を入力します' : 'すべての項目を編集します',
+        onclick: function (e) {
+          e.stopPropagation();
+          Form.openEditor(t, function () { App.render(); }, pending ? { mode: 'actual' } : null);
+        }
+      }),
+      U.el('button', {
+        class: 'icon-btn', text: '⋯', title: '詳細',
+        onclick: function (e) { e.stopPropagation(); Form.openViewer(t, function () { App.render(); }); }
+      })
+    ])]);
+  }
+
+  /* 着手済みで実績未入力の行の、空いている実績の項目（未着手・対象外は対象外） */
+  function missingKeys(t) {
+    var E = State.enums.status;
+    if (!Form.needsActual(t) || t.effectiveStatus === E.todo || t.effectiveStatus === E.na) return [];
+    return Form.actualKeys(t).filter(function (k) { return U.num(t[k]) === null; });
   }
 
   function cellFor(task, key, rerender) {
@@ -259,6 +283,7 @@
       td.className = '';
       td.appendChild(Form.statusChip(task.effectiveStatus));
       if (task.isLate) td.appendChild(U.el('span', { class: 'chip', style: { background: 'var(--danger-soft)', color: 'var(--danger)', marginLeft: '4px' }, text: '遅延' }));
+      if (missingKeys(task).length) td.appendChild(U.el('span', { class: 'chip chip-missing', style: { marginLeft: '4px' }, text: '実績未入力' }));
       td.className += ' editable';
     } else if (key === 'progress') {
       td.className = 'editable';
@@ -417,7 +442,7 @@
   /* --------------------------------------------------- view */
   Views.tasks = {
     title: '一覧・入力',
-    desc: 'ダブルクリックで直接編集／行の⋯で詳細',
+    desc: '「実績入力」で工数・step・指摘を入力／セルのダブルクリックで直接編集／⋯で詳細',
     icon: '📋',
     searchable: true,
     onEnter: function (params) {
@@ -439,7 +464,7 @@
 
       var actions = U.el('div', { class: 'row-flex', style: { marginBottom: '10px' } }, [
         U.el('button', {
-          class: 'btn btn-primary btn-sm', text: '＋ 行を追加',
+          class: 'btn btn-primary btn-sm', text: '＋ 新規登録', title: '開発プログラム（タスク）を新しく登録します',
           onclick: function () {
             Form.openEditor({
               type: F.type === 'all' ? 'mfg' : F.type,

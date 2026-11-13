@@ -216,6 +216,11 @@ table.vol-table .vpin-2::after {
   width: 2px; background: var(--border-strong);
 }
 .row-late td { background: #fff7f7; }
+/* 着手済みで実績が未入力のセル */
+table.grid-table td.cell-missing { background: var(--warn-soft); box-shadow: inset 0 0 0 1px #fcd34d; }
+.chip-missing { background: var(--warn-soft); color: var(--warn); }
+.row-actions { display: flex; align-items: center; gap: 4px; }
+.row-action { min-width: 68px; justify-content: center; }
 .empty { padding: 46px 20px; text-align: center; color: var(--text-3); }
 .empty .big { font-size: 34px; display: block; margin-bottom: 8px; opacity: .5; }
 
@@ -270,6 +275,31 @@ table.vol-table .vpin-2::after {
   letter-spacing: .06em; padding: 8px 0 2px; border-bottom: 1px solid var(--border); margin-top: 4px;
 }
 textarea { resize: vertical; min-height: 60px; }
+/* 区分で使わない step 欄（入力はできる） */
+.field.field-dim { opacity: .45; }
+.field.field-dim:focus-within { opacity: 1; }
+/* 使われていない項目の折りたたみ */
+.form-more { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.form-more > summary { cursor: pointer; padding: 9px 12px; font-size: 11.5px; font-weight: 700; color: var(--text-2); }
+.form-more > summary:hover { background: var(--surface-2); }
+.form-more[open] > summary { border-bottom: 1px solid var(--border); }
+.form-more > .form-grid { padding: 12px; }
+.form-more-count { margin-left: 8px; color: var(--primary); }
+/* 自動計算の結果（入力欄にしない）。フォームの下に固定表示 */
+.calc-panel {
+  position: sticky; bottom: -16px; margin: 16px -18px -16px; padding: 10px 18px 12px;
+  background: #f8fafc; border-top: 1px solid var(--border-strong); box-shadow: 0 -4px 10px rgba(15, 23, 42, .05);
+}
+.calc-title { font-size: 10.5px; font-weight: 800; color: var(--text-3); margin-bottom: 6px; }
+.calc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 4px 14px; }
+.calc-item { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--text-2); border-bottom: 1px dotted var(--border); padding: 2px 0; }
+.calc-item b { color: var(--text); font-size: 12px; }
+/* 実績入力の見出し（どのタスクか） */
+.actual-head {
+  display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; padding: 10px 12px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.actual-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; }
 
 /* ---------------------------------------------------- drawer & modal */
 .drawer-backdrop, .modal-backdrop {
