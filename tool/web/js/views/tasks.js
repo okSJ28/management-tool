@@ -64,7 +64,7 @@
       if (F.quick === 'late' && !t.isLate) return false;
       if (F.quick === 'doing' && !(t.effectiveStatus === E.doing || t.effectiveStatus === E.review)) return false;
       if (F.quick === 'todo' && t.effectiveStatus !== E.todo) return false;
-      if (F.quick === 'nohour' && t.totalHour) return false;
+      if (F.quick === 'nohour' && !Form.needsActual(t)) return false;
       if (F.quick === 'mine' && t.assignee1 !== myMember() && t.assignee2 !== myMember()) return false;
       if (kw || globalKw) {
         var hay = [t.programId, t.project, t.assignee1, t.assignee2, t.resource, t.system, t.note, t.tags]
@@ -123,7 +123,7 @@
 
     var quick = U.el('div', { class: 'fld' }, [U.el('label', { text: 'クイック' })]);
     var qseg = U.el('div', { class: 'seg' });
-    var quicks = [['', 'なし'], ['doing', '進行中'], ['todo', '予定'], ['late', '遅延'], ['nohour', '工数未入力']];
+    var quicks = [['', 'なし'], ['doing', '進行中'], ['todo', '予定'], ['late', '遅延'], ['nohour', '実績未入力']];
     if (myMember()) quicks.splice(1, 0, ['mine', '自分の担当']);
     quicks.forEach(function (q) {
       qseg.appendChild(U.el('button', {
@@ -321,7 +321,10 @@
     var f = State.field(key);
     var value = task[key];
     var isNum = f.type === 'number' || f.type === 'calc';
-    var td = U.el('td', { class: (isNum ? 'num ' : '') + (f.type === 'calc' ? 'col-calc' : f.readonly ? '' : 'editable') });
+    // 区分で使わない step のセルは「入力不要」（灰色・直接編集なし）
+    var na = Form.unusedStepKeys(task).indexOf(key) >= 0;
+    var td = U.el('td', { class: (isNum ? 'num ' : '') + (f.type === 'calc' ? 'col-calc' : na ? 'cell-na' : f.readonly ? '' : 'editable') });
+    if (na) td.title = '区分が「' + task.kubun + '」のときは入力不要です';
 
     if (key === 'status') {
       td.className = '';
@@ -331,8 +334,9 @@
       td.className += ' editable';
     } else if (key === 'progress') {
       td.className = 'editable';
-      var pct = U.num(value) || 0;
-      td.appendChild(U.el('div', { class: 'row-flex' }, [
+      // 未入力は 0% と区別して空欄にする
+      var pct = U.num(value);
+      if (pct !== null) td.appendChild(U.el('div', { class: 'row-flex' }, [
         U.el('div', { class: 'progress', style: { flex: 1 } }, [U.el('span', { style: { width: Math.min(100, pct) + '%' } })]),
         U.el('span', { class: 'muted mono', style: { width: '30px' }, text: pct + '%' })
       ]));
@@ -343,7 +347,7 @@
       td.textContent = U.fmtDateFull(value);
       td.style.fontFamily = 'var(--mono)';
     } else if (isNum) {
-      td.textContent = value === null || value === undefined ? '' : U.fmtNum(value, f.decimals);
+      td.textContent = value === null || value === undefined ? (na ? '—' : '') : U.fmtNum(value, f.decimals);
       if (key === 'quality' && U.num(value) > (State.settings().targetQuality || 50)) td.style.color = 'var(--danger)';
       if (key === 'prodMonth' && U.num(value) !== null) {
         td.style.color = U.num(value) >= (State.settings().targetProdMonth || 800) ? 'var(--ok)' : 'var(--text)';
@@ -358,7 +362,7 @@
       td.textContent = value === null || value === undefined ? '' : String(value);
     }
 
-    if (f.type !== 'calc' && !f.readonly) {
+    if (f.type !== 'calc' && !f.readonly && !na) {
       td.addEventListener('dblclick', function () { startEdit(td, task, f, rerender); });
     }
     td.addEventListener('click', function (e) {
@@ -383,14 +387,31 @@
       var v = save ? Form.readValue(field, input) : null;
       if (!save || v === task[field.key]) { td.innerHTML = old; return; }
       var patch = {}; patch[field.key] = v;
-      U.loading(true);
-      API.updateTask(task.id, patch).then(function (r) {
-        Object.assign(task, r.task);
-        U.toast('更新: ' + field.label, 'ok', 1400);
-        return State.reload();
-      }).then(function () { rerender(); })
-        .catch(function (e) { U.toast('更新失敗: ' + e.message, 'err'); td.innerHTML = old; })
-        .finally(function () { U.loading(false); });
+      // 必須・数値・期間のチェック。区分を変えたときは使わなくなった step を消す
+      var merged = Object.assign({}, task, patch);
+      var msg = Form.validate(merged);
+      if (msg) { U.toast(msg, 'warn'); td.innerHTML = old; return; }
+      if (field.key === 'programId' || field.key === 'project') patch[field.key] = merged[field.key];
+      var erased = [];
+      if (field.key === 'kubun') {
+        Form.unusedStepKeys(merged).forEach(function (k) {
+          if (task[k] !== null && task[k] !== undefined) { patch[k] = null; erased.push(State.field(k).label + ' ' + U.fmtNum(task[k], 0)); }
+        });
+      }
+      function send() {
+        U.loading(true);
+        API.updateTask(task.id, patch).then(function (r) {
+          Object.assign(task, r.task);
+          U.toast('更新: ' + field.label, 'ok', 1400);
+          return State.reload();
+        }).then(function () { rerender(); })
+          .catch(function (e) { U.toast('更新失敗: ' + e.message, 'err'); td.innerHTML = old; })
+          .finally(function () { U.loading(false); });
+      }
+      // 区分の変更で入っている step が消えるときは確認する
+      if (!erased.length) { send(); return; }
+      U.confirmDialog('区分の変更', '区分を「' + v + '」にすると、入力不要になる ' + erased.join('・') + ' を消去します。よろしいですか？', '変更する')
+        .then(function (ok) { if (ok) send(); else td.innerHTML = old; });
     }
     input.addEventListener('blur', function () { commit(true); });
     input.addEventListener('keydown', function (e) {

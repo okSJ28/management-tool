@@ -128,10 +128,24 @@
   /* 工数が 1 つも入っていなければ実績未入力 */
   function needsActual(task) { return U.num(task.totalHour) === null; }
 
-  /* 区分で使わない step 欄（区分が未選択なら無し） */
+  /* 区分で使わない step 欄（区分が未選択なら無し）。新規: 母体step・修正step ／ 新規以外: 新規step */
   function unusedStepKeys(task) {
     if (task.type !== 'mfg' || !task.kubun) return [];
     return isNewKubun(task) ? ['baseStep', 'modStep'] : ['newStep'];
+  }
+
+  /* 保存前の入力チェック。問題があればメッセージ、なければ null（プログラムID・案件名は前後の空白を除く） */
+  function validate(t) {
+    ['programId', 'project'].forEach(function (k) { if (typeof t[k] === 'string') t[k] = t[k].trim() || null; });
+    var missing = State.fieldsOf(t.type).filter(function (f) { return f.required && !t[f.key]; })[0];
+    if (missing) return missing.label + 'を入力してください（プログラムID・案件名は両方とも必須です）';
+    var neg = State.fieldsOf(t.type).filter(function (f) {
+      return f.type === 'number' && U.num(t[f.key]) !== null && U.num(t[f.key]) < 0;
+    })[0];
+    if (neg) return neg.label + 'は 0 以上の数値で入力してください';
+    if (U.num(t.progress) !== null && U.num(t.progress) > 100) return '進捗率は 0〜100 で入力してください';
+    if (t.startDate && t.endDate && t.endDate < t.startDate) return '終了日が開始日より前になっています';
+    return null;
   }
 
   /* ---------------------------------------------- フォーム本体 */
@@ -141,6 +155,7 @@
     var wrap = U.el('div');
     var calcValues = {};
     var cells = {};
+    var inputs = {};
     var sections = [];
 
     function isBlank(v) { return v === null || v === undefined || v === ''; }
@@ -152,13 +167,16 @@
         var v = draft[k];
         calcValues[k].textContent = (v === null || v === undefined) ? '—' : U.fmtNum(v, f.decimals);
       });
-      // 区分で使わない step 欄は薄く表示する（入力はできる）
+      // 区分で使わない step 欄は「入力不要」にして入力できなくする（値が残っていれば保存時に消す）
       var unused = unusedStepKeys(draft);
       ['baseStep', 'newStep', 'modStep'].forEach(function (k) {
         if (!cells[k]) return;
         var off = unused.indexOf(k) >= 0;
-        cells[k].classList.toggle('field-dim', off);
+        cells[k].classList.toggle('field-na', off);
         cells[k].title = off ? '区分が「' + draft.kubun + '」のときは入力不要です' : '';
+        inputs[k].disabled = off;
+        inputs[k].placeholder = off ? '入力不要（区分：' + draft.kubun + '）' : '';
+        cells[k].querySelector('.na-badge').textContent = off && !isBlank(draft[k]) ? '入力不要（保存時に消去）' : '入力不要';
       });
       // 見出しごとの入力済みの数（薄く表示している step 欄は数えない）
       sections.forEach(function (sec) {
@@ -167,8 +185,10 @@
         sec.count.textContent = '入力済み ' + done + '/' + keys.length;
         sec.count.classList.toggle('done', done === keys.length);
       });
-      // 空いている必須欄（プログラムID・案件名のどちらか）と、実績入力では空いている実績の欄に色を付ける
-      var need = (isBlank(draft.programId) && isBlank(draft.project)) ? ['programId', 'project'] : [];
+      // 空いている必須欄（プログラムID・案件名）と、実績入力では空いている実績の欄に色を付ける
+      var need = Object.keys(cells).filter(function (k) {
+        return State.field(k).required && isBlank(typeof draft[k] === 'string' ? draft[k].trim() : draft[k]);
+      });
       if (opts.highlightActual) need = need.concat(actualKeys(draft).filter(function (k) { return isBlank(draft[k]); }));
       Object.keys(cells).forEach(function (k) { cells[k].classList.toggle('field-need', need.indexOf(k) >= 0); });
     }
@@ -195,17 +215,18 @@
 
     function fieldCell(f) {
       var cell = U.el('div', { class: 'field' + (f.type === 'textarea' || f.key === 'project' ? ' span2' : '') });
-      var eitherReq = f.key === 'programId' || f.key === 'project';
+      var isStep = f.key === 'baseStep' || f.key === 'newStep' || f.key === 'modStep';
       cell.appendChild(U.el('label', {}, [
         document.createTextNode(f.label),
-        eitherReq ? U.el('span', { class: 'req-badge', title: 'プログラムID・案件名のどちらかは必ず入力してください', text: 'どちらか必須' })
-          : f.required ? U.el('span', { class: 'req', text: '*' }) : null
+        f.required ? U.el('span', { class: 'req-badge', title: '必ず入力してください', text: '必須' }) : null,
+        isStep ? U.el('span', { class: 'na-badge', text: '入力不要' }) : null
       ]));
       var input = control(f, draft[f.key], function (v) {
         draft[f.key] = v;
         rebuildCalc();
         opts.onChange && opts.onChange(draft);
       });
+      inputs[f.key] = input;
       // 単位（step / h / 件 など）は入力欄の右端に出す
       cell.appendChild(f.unit ? U.el('div', { class: 'input-unit' }, [input, U.el('span', { class: 'unit', text: f.unit })]) : input);
       if (f.help) cell.appendChild(U.el('div', { class: 'hint', text: f.help }));
@@ -283,7 +304,14 @@
     function save() {
       if (saving) return;
       var d = form.draft;
-      if (!d.programId && !d.project) { U.toast('プログラムIDまたは案件名のどちらかを入力してください', 'warn'); return; }
+      // 区分で使わない step の値は残さない（分析の新規step・修正step 合計に混ざらないように）
+      unusedStepKeys(d).forEach(function (k) { d[k] = null; });
+      var msg = validate(d);
+      if (msg) {
+        U.toast(msg + (actualMode && /プログラムID|案件名/.test(msg) ? '。「すべての項目を編集」から入力してください' : ''), 'warn');
+        form.refresh();
+        return;
+      }
       saving = true;
       U.loading(true);
       var p = isNew ? API.addTask(d) : API.updateTask(d.id, Object.assign({}, d, { _baseUpdatedAt: base.updatedAt || null }));
@@ -358,7 +386,7 @@
       U.el('div', { class: 'actual-meta' }, info.map(function (x) {
         return U.el('span', {}, [U.el('span', { class: 'muted', text: x[0] + ' ' }), document.createTextNode(x[1])]);
       })),
-      U.el('div', { class: 'hint', text: 'オレンジ枠の欄が未入力の実績です。入力して保存してください。区分で使わない step 欄は薄く表示しています。' })
+      U.el('div', { class: 'hint', text: 'オレンジ枠の欄が未入力の実績です。入力して保存してください。区分で使わない step 欄は「入力不要」になります。' })
     ]);
   }
 
@@ -424,7 +452,7 @@
   global.Calc = Calc;
   global.Form = {
     buildForm: buildForm, openEditor: openEditor, openViewer: openViewer,
-    actualKeys: actualKeys, needsActual: needsActual,
+    actualKeys: actualKeys, needsActual: needsActual, unusedStepKeys: unusedStepKeys, validate: validate,
     statusChip: statusChip, displayValue: displayValue, control: control, readValue: readValue
   };
 })(window);

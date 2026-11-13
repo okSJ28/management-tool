@@ -76,6 +76,7 @@
     {
       "key": "project",
       "label": "案件名",
+      "required": true,
       "type": "select-free",
       "group": "basic",
       "types": ["mfg", "dd"],
@@ -472,14 +473,14 @@
   "tableColumns": {
     "mfg": [
       "status", "programId", "system", "resource", "kubun", "project",
-      "assignee1", "startDate", "endDate", "progress",
+      "assignee1", "startDate", "endDate",
       "baseStep", "newStep", "modStep", "convStep",
       "hourMake", "hourCheck", "hourVerify", "totalHour",
       "issueTotal", "defect", "testRatio", "prodMonth", "quality"
     ],
     "dd": [
       "status", "programId", "resource", "designType", "kubun", "project",
-      "assignee1", "startDate", "endDate", "progress",
+      "assignee1", "startDate", "endDate",
       "pages", "issues", "hourDesign", "pagePerHour", "issuePerPage", "month"
     ]
   }
