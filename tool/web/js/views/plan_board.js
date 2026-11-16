@@ -218,22 +218,27 @@
           ])
         ]);
       }
-      function assignBand(a) {
+      function assignBand(a, iso) {
         var ac = State.planColor(a.category);
-        // 期間を変更した取組み予定は 📅 を付け、マウスを重ねると当初の期間を出す
-        var first = (a.reschedules || [])[0];
+        // 予定を変更した取組み予定は 📅 を付け、マウスを重ねると当初の予定と変更履歴を出す。
+        // 当初の期間の外に出た日（延長した日など）は、帯を斜線にして黄色の枠で囲む
+        var R = Views.planAssign._resched, sl = R.slip(a);
+        var outside = sl && (iso < sl.base.date || iso > sl.base.endDate);
         return U.el('div', {
           title: '【取組み予定】' + (a.category || '') + ' ' + (a.title || '') + '\n'
             + U.fmtDateFull(a.date) + '〜' + U.fmtDateFull(a.endDate || a.date)
-            + (first ? '\n📅 期間を変更（' + a.reschedules.length + '回）当初 ' + U.fmtDateFull(first.fromDate) + '〜' + U.fmtDateFull(first.fromEndDate || first.fromDate) : '')
-            + '\n予定 ' + (a.hours || 0) + 'h',
+            + '\n予定 ' + (a.hours || 0) + 'h'
+            + (sl ? '\n📅 ' + R.slipText(sl) + '\n' + R.historyTitle(a) : '')
+            + (outside ? '\n※ この日は当初の期間の外（予定の変更で追加した日）' : ''),
           style: {
-            background: ac, color: '#fff', borderRadius: '3px', padding: '1px 4px',
+            background: outside ? 'repeating-linear-gradient(135deg, ' + ac + ' 0 5px, ' + ac + 'b3 5px 10px)' : ac,
+            color: '#fff', borderRadius: '3px', padding: '1px 4px',
+            outline: outside ? '2px solid var(--warn)' : null, outlineOffset: '-1px',
             marginBottom: '2px', fontSize: '9.5px', fontWeight: 700,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
           },
           onclick: function (e) { e.stopPropagation(); Views.planAssign._editor(a, function () { App.render(); }); },
-          text: '📌 ' + (first ? '📅 ' : '') + (a.title || a.category || '')
+          text: '📌 ' + (outside ? '📅延長 ' : sl ? '📅 ' : '') + (a.title || a.category || '')
         });
       }
 
@@ -282,7 +287,7 @@
               State.assignmentsOn(iso, m).forEach(function (a) {
                 if (B.category && a.category !== B.category) return;
                 if (B.project && a.project !== B.project) return;
-                td.appendChild(assignBand(a));
+                td.appendChild(assignBand(a, iso));
               });
             }
             var items = k === 'plan' ? dayPlans : dayResults;
@@ -432,13 +437,82 @@
       tbl.appendChild(tb);
       card.appendChild(U.el('div', { class: 'table-wrap' }, [tbl]));
       root.appendChild(card);
+      root.appendChild(rescheduleCard(assigns));
     }
   };
+
+  /* 予定サマリ: 期間内の取組み予定のうち、予定（期間・予定工数）を変更したものの集計 */
+  function rescheduleCard(assigns) {
+    var R = Views.planAssign._resched;
+    var rows = assigns.map(function (a) { return { a: a, sl: R.slip(a) }; })
+      .filter(function (x) { return x.sl; })
+      .sort(function (x, y) { return y.sl.days - x.sl.days || y.sl.count - x.sl.count; });
+    var card = U.el('div', { class: 'card mt16' }, [
+      U.el('div', { class: 'card-head' }, [
+        U.el('h3', { text: '📅 取組み予定の予定変更' }),
+        U.el('span', { class: 'muted', text: '期間内の取組み予定のうち、期間・予定工数を変更したもの（当初からの差）' })
+      ])
+    ]);
+    if (!rows.length) {
+      card.appendChild(U.el('div', { class: 'card-body muted', text: '期間内に予定を変更した取組み予定はありません' }));
+      return card;
+    }
+    var changes = 0, ext = 0, hrs = 0, reasons = {};
+    rows.forEach(function (x) {
+      changes += x.sl.count;
+      if (x.sl.days > 0) ext += x.sl.days;
+      hrs += x.sl.hours;
+      x.a.reschedules.forEach(function (h) { var k = h.reason || '（理由なし）'; reasons[k] = (reasons[k] || 0) + 1; });
+    });
+    hrs = Math.round(hrs * 100) / 100;
+    card.appendChild(U.el('div', { class: 'card-body' }, [
+      U.el('div', { class: 'row-flex', style: { gap: '8px', flexWrap: 'wrap' } }, [
+        U.el('span', { class: 'pa-slip', text: '予定変更あり ' + rows.length + '件 / ' + assigns.length + '件' }),
+        U.el('span', { class: 'pa-slip', text: '変更 ' + changes + '回' }),
+        U.el('span', { class: 'pa-slip', text: '延長 計 +' + ext + '日' }),
+        U.el('span', { class: 'pa-slip', text: '予定工数 計 ' + (hrs ? R.signedHours(hrs) : '±0h') })
+      ].concat([U.el('span', { class: 'muted', style: { marginLeft: '8px' }, text: '理由別:' })])
+        .concat(Object.keys(reasons).sort(function (x, y) { return reasons[y] - reasons[x]; }).map(function (k) {
+          return U.el('span', { class: 'chip', text: k + ' ' + reasons[k] + '回' });
+        })))
+    ]));
+    var tbl = U.el('table', { class: 'grid-table' });
+    tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['担当者', '作業内容', '当初の予定', '今の予定', '終了日', '予定工数', '変更回数', '直近の理由'].map(function (h, i) {
+      return U.el('th', { class: i >= 4 && i <= 6 ? 'right' : '', text: h });
+    }))]));
+    var tb = U.el('tbody');
+    rows.forEach(function (x) {
+      var a = x.a, sl = x.sl;
+      tb.appendChild(U.el('tr', {
+        style: { cursor: 'pointer' }, title: R.historyTitle(a),
+        onclick: function () { Views.planAssign._editor(a, function () { App.render(); }); }
+      }, [
+        U.el('td', { text: a.member || '' }),
+        U.el('td', { class: 'strong', text: a.title || a.category || '' }),
+        U.el('td', { text: R.period(sl.base.date, sl.base.endDate) + '・' + R.hoursLabel(sl.base.hours) }),
+        U.el('td', { text: R.period(a.date, a.endDate) + '・' + R.hoursLabel(a.hours === null || a.hours === undefined ? null : Number(a.hours)) }),
+        U.el('td', {
+          class: 'num strong', style: { color: sl.days > 0 ? 'var(--warn)' : sl.days < 0 ? 'var(--info)' : null },
+          text: sl.days ? R.signedDays(sl.days) : '±0'
+        }),
+        U.el('td', {
+          class: 'num strong', style: { color: sl.hours > 0 ? 'var(--warn)' : sl.hours < 0 ? 'var(--info)' : null },
+          text: sl.hours ? R.signedHours(sl.hours) : '±0'
+        }),
+        U.el('td', { class: 'num', text: sl.count + '回' }),
+        U.el('td', { text: sl.latest.reason || '' })
+      ]));
+    });
+    tbl.appendChild(tb);
+    card.appendChild(U.el('div', { class: 'table-wrap' }, [tbl]));
+    return card;
+  }
 
   function exportPlans() {
     var head = ['種別', '担当者', '開始日', '終了日', 'PJCD', 'PJ名称', '作業コード', '作業コード名称',
       '工程（作業区分）', '案件名', '作業内容',
-      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '遅延解消日', '未実施理由', '取組み予定ID', '備考', '更新者'];
+      '予定工数', '実績工数', '進捗率', '状況', '遅延理由', '遅延解消日', '未実施理由', '取組み予定ID', '備考', '更新者',
+      '予定変更回数', '当初の開始日', '当初の終了日', '当初の予定工数'];
     var label = { plan: '予定', result: '実績', assignment: '取組み予定' };
     var lines = [head.join(',')];
     (State.plans || []).slice().sort(function (a, b) {
@@ -451,6 +525,11 @@
         p.workCode, State.codeName('workCodes', p.workCode),
         p.category, p.project, p.title,
         p.hours, p.actualHours, p.progress, p.status, p.delayReason, p.delayResolvedAt, p.skipReason, p.assignmentId, p.note, p.updatedBy]
+        // 取組み予定は予定の変更回数と当初の予定（変更していなければ今の予定）も出す
+        .concat(kindOf(p) === 'assignment' ? (function () {
+          var b = Views.planAssign._resched.baseline(p);
+          return [(p.reschedules || []).length, b.date, b.endDate, b.hours];
+        })() : ['', '', '', ''])
         .map(function (v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; }).join(','));
     });
     U.download('業務予定実績.csv', new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' }));

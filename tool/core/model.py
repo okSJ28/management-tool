@@ -287,9 +287,10 @@ PLAN_NUM_KEYS = ("hours", "actualHours", "progress")
 PLAN_KINDS = ("plan", "result", "assignment")
 RESULT_STATUSES = ("予定通り", "遅延")
 # 取組み予定（assignment）のステータスのうち、紐づく実績から自動で切り替えるもの（実績なし / 実績あり / 最新の進捗 100）
-# reschedules = 取組み予定の期間の変更履歴（古い順）。1 件目の変更前の期間が当初の期間になる
+# reschedules = 取組み予定の予定（期間・予定工数）の変更履歴（古い順）。1 件目の変更前が当初の予定になる
 RESCHEDULE_TEXT_KEYS = ("at", "by", "reason")
 RESCHEDULE_DATE_KEYS = ("fromDate", "fromEndDate", "toDate", "toEndDate")
+RESCHEDULE_NUM_KEYS = ("fromHours", "toHours")
 ASSIGNMENT_AUTO_STATUSES = ("予定", "実施中", "完了")
 
 
@@ -321,7 +322,7 @@ def normalize_plan(raw: dict) -> dict:
 
 
 def normalize_reschedules(raw: Any) -> list[dict]:
-    """取組み予定の期間の変更履歴をそろえる（変更前後の日付が無いものは捨てる）。"""
+    """取組み予定の予定の変更履歴をそろえる（変更前後の日付が無いものは捨てる）。"""
     out: list[dict] = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
@@ -332,6 +333,8 @@ def normalize_reschedules(raw: Any) -> list[dict]:
             entry[key] = None if value is None else str(value).strip()[:200] or None
         for key in RESCHEDULE_DATE_KEYS:
             entry[key] = to_date(item.get(key))
+        for key in RESCHEDULE_NUM_KEYS:
+            entry[key] = to_num(item.get(key))
         if entry["fromDate"] and entry["toDate"]:
             entry["fromEndDate"] = entry["fromEndDate"] or entry["fromDate"]
             entry["toEndDate"] = entry["toEndDate"] or entry["toDate"]
