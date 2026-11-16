@@ -265,6 +265,10 @@ table.grid-table td.cell-missing { background: var(--warn-soft); box-shadow: ins
   padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 6px;
   background: var(--surface); outline: none; min-width: 110px;
 }
+/* チェックボックスは最小幅・余白をかけない（文字と離れないように） */
+.filterbar input[type=checkbox], .filterbar input[type=radio] { min-width: 0; width: auto; padding: 0; margin: 0; }
+/* チェックボックスと文字は近づけ、隣の項目とは間をあけて、どの文字のチェックか分かるようにする */
+.filterbar > label.row-flex { gap: 5px; margin: 0 6px; cursor: pointer; }
 .filterbar input:focus, .filterbar select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
 .filterbar .spacer { flex: 1; }
 /* 「詳細条件」で開く 2 段目 */
@@ -528,6 +532,8 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .pi-delays { margin-bottom: 16px; border-color: var(--danger); }
 /* 取組み予定の期間の変更（リスケ） */
 .pa-slip { display: inline-block; margin-top: 2px; padding: 0 5px; border-radius: 3px; background: var(--warn-soft); color: var(--warn); font-size: 10px; font-weight: 700; }
+.pa-resched-btn { padding: 9px 18px; font-size: 13.5px; border-color: var(--warn); background: var(--warn-soft); color: #92400e; }
+.pa-resched-btn:hover { background: #fde68a; border-color: var(--warn); }
 .pa-resched { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; background: #fffbeb; }
 .pa-resched-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .pa-resched-grid .pa-resched-reason { grid-column: 1 / -1; }

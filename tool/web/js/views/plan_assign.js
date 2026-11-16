@@ -175,7 +175,7 @@
       var sl = slip(base);
       var changeBox = U.el('div', { class: 'field span2 pa-resched', style: { display: 'none' } });
       var openBtn = U.el('button', {
-        type: 'button', class: 'btn btn-sm', text: '📅 予定を変更（期間・予定工数）',
+        type: 'button', class: 'btn pa-resched-btn', text: '📅 予定を変更（期間・予定工数）',
         onclick: function () {
           resched = { reason: null, correction: false };
           changeBox.style.display = '';
@@ -189,7 +189,7 @@
           text: '📅 ' + slipText(sl) + '　当初 ' + period(sl.base.date, sl.base.endDate) + '・' + hoursLabel(sl.base.hours)
         }) : null,
         // 他の担当者の取組み予定（閲覧のみ）では変更ボタンを出さない
-        editable ? U.el('div', { style: { marginTop: '4px' } }, [openBtn]) : null
+        editable ? U.el('div', { style: { marginTop: '8px' } }, [openBtn]) : null
       ]), true);
       var reasonList = U.el('datalist', { id: 'dl_resched_reason' });
       RESCHEDULE_REASONS.forEach(function (r) { reasonList.appendChild(U.el('option', { value: r })); });
