@@ -526,6 +526,11 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .pi-table td select.pi-delayed { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); font-weight: 700; }
 .pi-table td select.pi-skipped { background: var(--surface-2); color: var(--text-2); font-weight: 700; }
 .pi-delays { margin-bottom: 16px; border-color: var(--danger); }
+/* 取組み予定の期間の変更（リスケ） */
+.pa-slip { display: inline-block; margin-top: 2px; padding: 0 5px; border-radius: 3px; background: var(--warn-soft); color: var(--warn); font-size: 10px; font-weight: 700; }
+.pa-resched { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; background: #fffbeb; }
+.pa-resched-grid { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 8px; }
+.pa-resched-grid input { width: 100%; }
 .pi-delays .card-head h3 { color: var(--danger); }
 .pi-delays tr.pi-resolved td { color: var(--text-3); }
 .pi-table td input.pi-reason { display: block; margin-top: 4px; font-size: 11px; }

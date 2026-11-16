@@ -220,9 +220,12 @@
       }
       function assignBand(a) {
         var ac = State.planColor(a.category);
+        // 期間を変更した取組み予定は 📅 を付け、マウスを重ねると当初の期間を出す
+        var first = (a.reschedules || [])[0];
         return U.el('div', {
           title: '【取組み予定】' + (a.category || '') + ' ' + (a.title || '') + '\n'
             + U.fmtDateFull(a.date) + '〜' + U.fmtDateFull(a.endDate || a.date)
+            + (first ? '\n📅 期間を変更（' + a.reschedules.length + '回）当初 ' + U.fmtDateFull(first.fromDate) + '〜' + U.fmtDateFull(first.fromEndDate || first.fromDate) : '')
             + '\n予定 ' + (a.hours || 0) + 'h',
           style: {
             background: ac, color: '#fff', borderRadius: '3px', padding: '1px 4px',
@@ -230,7 +233,7 @@
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
           },
           onclick: function (e) { e.stopPropagation(); Views.planAssign._editor(a, function () { App.render(); }); },
-          text: '📌 ' + (a.title || a.category || '')
+          text: '📌 ' + (first ? '📅 ' : '') + (a.title || a.category || '')
         });
       }
 

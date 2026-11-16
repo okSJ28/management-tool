@@ -287,6 +287,9 @@ PLAN_NUM_KEYS = ("hours", "actualHours", "progress")
 PLAN_KINDS = ("plan", "result", "assignment")
 RESULT_STATUSES = ("予定通り", "遅延")
 # 取組み予定（assignment）のステータスのうち、紐づく実績から自動で切り替えるもの（実績なし / 実績あり / 最新の進捗 100）
+# reschedules = 取組み予定の期間の変更履歴（古い順）。1 件目の変更前の期間が当初の期間になる
+RESCHEDULE_TEXT_KEYS = ("at", "by", "reason")
+RESCHEDULE_DATE_KEYS = ("fromDate", "fromEndDate", "toDate", "toEndDate")
 ASSIGNMENT_AUTO_STATUSES = ("予定", "実施中", "完了")
 
 
@@ -309,10 +312,31 @@ def normalize_plan(raw: dict) -> dict:
     plan["date"] = to_date(raw.get("date")) or to_date(raw.get("startDate"))
     plan["endDate"] = to_date(raw.get("endDate")) or plan["date"]
     plan["allDay"] = bool(raw.get("allDay", True))
+    if plan["kind"] == "assignment":
+        plan["reschedules"] = normalize_reschedules(raw.get("reschedules"))
     plan["id"] = raw.get("id")
     plan["createdAt"] = raw.get("createdAt")
     plan["updatedAt"] = raw.get("updatedAt")
     return plan
+
+
+def normalize_reschedules(raw: Any) -> list[dict]:
+    """取組み予定の期間の変更履歴をそろえる（変更前後の日付が無いものは捨てる）。"""
+    out: list[dict] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        entry: dict[str, Any] = {}
+        for key in RESCHEDULE_TEXT_KEYS:
+            value = item.get(key)
+            entry[key] = None if value is None else str(value).strip()[:200] or None
+        for key in RESCHEDULE_DATE_KEYS:
+            entry[key] = to_date(item.get(key))
+        if entry["fromDate"] and entry["toDate"]:
+            entry["fromEndDate"] = entry["fromEndDate"] or entry["fromDate"]
+            entry["toEndDate"] = entry["toEndDate"] or entry["toDate"]
+            out.append(entry)
+    return out
 
 
 def expand_plan_dates(plan: dict) -> list[str]:

@@ -37,6 +37,73 @@
     sel.value = selectedId || '';
   }
 
+  /* ------------------------------------------------ 期間の変更（リスケ） */
+  /* 期間の変更理由の候補（自由入力もできる） */
+  var RESCHEDULE_REASONS = ['仕様変更', '他作業の優先', '見積りの見直し', '前工程・回答待ち', '体制・休暇'];
+
+  /* 当初の期間（1 件目の変更の変更前。変更していなければ今の期間） */
+  function baseline(a) {
+    var h = (a.reschedules || [])[0];
+    return h ? { date: h.fromDate, endDate: h.fromEndDate || h.fromDate } : { date: a.date, endDate: a.endDate || a.date };
+  }
+  function dayDiff(from, to) { return Math.round((U.parseDate(to) - U.parseDate(from)) / 86400000); }
+  /* 期間を変更した取組み予定の、当初の終了日からのずれ（＋延長／−前倒し）と変更回数。変更していなければ null */
+  function slip(a) {
+    var n = (a.reschedules || []).length;
+    if (!n) return null;
+    var b = baseline(a);
+    return { count: n, days: dayDiff(b.endDate, a.endDate || a.date), base: b };
+  }
+  function slipText(sl) {
+    return (sl.days > 0 ? '延長 +' + sl.days + '日' : sl.days < 0 ? '前倒し ' + sl.days + '日' : '終了日は当初どおり')
+      + '（変更 ' + sl.count + '回）';
+  }
+  function period(from, to) {
+    return U.fmtDate(from) + '(' + WD[U.parseDate(from).getDay()] + ')〜' + U.fmtDate(to || from) + '(' + WD[U.parseDate(to || from).getDay()] + ')';
+  }
+  /* マウスを重ねたときに出す変更履歴 */
+  function historyTitle(a) {
+    var b = baseline(a);
+    return ['当初の期間: ' + period(b.date, b.endDate)].concat((a.reschedules || []).map(function (h, i) {
+      return (i + 1) + '回目 ' + (h.at || '').slice(0, 10) + '  ' + period(h.fromDate, h.fromEndDate) + ' → ' + period(h.toDate, h.toEndDate)
+        + (h.reason ? '  理由: ' + h.reason : '') + (h.by ? '（' + h.by + '）' : '');
+    })).join('\n');
+  }
+  function nowStamp() {
+    var d = new Date();
+    return U.iso(d) + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+  /* 期間の変更履歴の表（エディタ用） */
+  function historyTable(a) {
+    var b = baseline(a);
+    var tbl = U.el('table', { class: 'grid-table', style: { fontSize: '11px' } });
+    tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['', '変更日', '変更前', '変更後', '終了日', '理由', '変更者'].map(function (h) {
+      return U.el('th', { text: h });
+    }))]));
+    var tb = U.el('tbody');
+    tb.appendChild(U.el('tr', { style: { background: 'var(--surface-2)' } }, [
+      U.el('td', { class: 'strong', text: '当初' }), U.el('td', { text: '' }), U.el('td', { text: '' }),
+      U.el('td', { text: period(b.date, b.endDate) }), U.el('td', {}), U.el('td', {}), U.el('td', {})
+    ]));
+    (a.reschedules || []).forEach(function (h, i) {
+      var d = dayDiff(h.fromEndDate || h.fromDate, h.toEndDate || h.toDate);
+      tb.appendChild(U.el('tr', {}, [
+        U.el('td', { class: 'strong', text: (i + 1) + '回目' }),
+        U.el('td', { class: 'mono', text: (h.at || '').slice(5, 16).replace('-', '/') }),
+        U.el('td', { text: period(h.fromDate, h.fromEndDate) }),
+        U.el('td', { class: 'strong', text: period(h.toDate, h.toEndDate) }),
+        U.el('td', {
+          class: 'num strong', style: { color: d > 0 ? 'var(--warn)' : d < 0 ? 'var(--info)' : null },
+          text: d > 0 ? '+' + d + '日' : d < 0 ? d + '日' : '±0'
+        }),
+        U.el('td', { text: h.reason || '' }),
+        U.el('td', { text: h.by || '' })
+      ]));
+    });
+    tbl.appendChild(tb);
+    return U.el('div', { class: 'table-wrap' }, [tbl]);
+  }
+
   /* ------------------------------------------------ 登録・編集 */
   function editor(base, onSaved) {
     var draft = Object.assign({
@@ -77,8 +144,47 @@
     memberSel.disabled = !State.isAdmin();
     field('担当者', memberSel);
     field('工程（作業区分）', select(State.masters.planCategories || [], 'category', 'value'));
-    field('開始日', input({ type: 'date', value: draft.date || '' }, 'date'));
-    field('終了日', input({ type: 'date', value: draft.endDate || '' }, 'endDate'));
+    // 登録済みの取組み予定の期間は「📅 期間を変更」からだけ変える（変更前後の期間と理由を履歴に残す）
+    var resched = null;
+    if (base && base.id) {
+      var sl = slip(base);
+      var changeBox = U.el('div', { class: 'field span2 pa-resched', style: { display: 'none' } });
+      var openBtn = U.el('button', {
+        type: 'button', class: 'btn btn-sm', text: '📅 期間を変更',
+        onclick: function () {
+          resched = { reason: null, correction: false };
+          changeBox.style.display = '';
+          openBtn.style.display = 'none';
+        }
+      });
+      field('期間', U.el('div', {}, [
+        U.el('div', { class: 'strong', text: period(base.date, base.endDate) }),
+        sl ? U.el('div', { class: 'pa-slip', title: historyTitle(base), text: '📅 ' + slipText(sl) + '　当初 ' + period(sl.base.date, sl.base.endDate) }) : null,
+        U.el('div', { style: { marginTop: '4px' } }, [openBtn])
+      ]), true);
+      var reasonList = U.el('datalist', { id: 'dl_resched_reason' });
+      RESCHEDULE_REASONS.forEach(function (r) { reasonList.appendChild(U.el('option', { value: r })); });
+      var reasonIn = U.el('input', { type: 'text', list: 'dl_resched_reason', placeholder: '例）仕様変更（候補から選ぶか自由に入力）' });
+      reasonIn.addEventListener('input', function () { resched.reason = this.value || null; });
+      var corr = U.el('input', { type: 'checkbox' });
+      corr.addEventListener('change', function () {
+        resched.correction = this.checked;
+        reasonIn.disabled = this.checked;
+      });
+      changeBox.appendChild(U.el('label', { text: '期間の変更' }));
+      changeBox.appendChild(U.el('div', { class: 'pa-resched-grid' }, [
+        U.el('div', {}, [U.el('div', { class: 'hint', text: '新しい開始日' }), input({ type: 'date', value: draft.date || '' }, 'date')]),
+        U.el('div', {}, [U.el('div', { class: 'hint', text: '新しい終了日' }), input({ type: 'date', value: draft.endDate || '' }, 'endDate')]),
+        U.el('div', { class: 'pa-resched-reason' }, [U.el('div', { class: 'hint', text: '変更の理由（任意）' }), reasonIn, reasonList])
+      ]));
+      changeBox.appendChild(U.el('label', { class: 'row-flex', style: { fontSize: '11.5px', fontWeight: 400, marginTop: '6px' } }, [
+        corr, document.createTextNode('入力ミスの訂正（変更の履歴に残さない）')
+      ]));
+      grid.appendChild(changeBox);
+    } else {
+      field('開始日', input({ type: 'date', value: draft.date || '' }, 'date'));
+      field('終了日', input({ type: 'date', value: draft.endDate || '' }, 'endDate'));
+    }
     field('予定工数(h)', input({
       type: 'number', step: '0.5', min: '0',
       value: draft.hours === null || draft.hours === undefined ? '' : draft.hours
@@ -117,6 +223,10 @@
     var note = U.el('textarea', { text: draft.note || '' });
     note.addEventListener('input', function () { draft.note = this.value || null; });
     field('備考', note, true);
+
+    if (base && (base.reschedules || []).length) {
+      field('期間の変更履歴', historyTable(base), true);
+    }
 
     if (base && base.id) {
       var roll = State.assignmentRollup(base);
@@ -171,6 +281,14 @@
         if (draft.endDate < draft.date) { U.toast('終了日は開始日以降にしてください', 'warn'); return; }
         if (draft.hours !== null && draft.hours !== undefined && !(draft.hours >= 0)) {
           U.toast('予定工数は 0 以上の数値で入力してください', 'warn'); return;
+        }
+        // 期間を変えたら変更の履歴に追加する（入力ミスの訂正は残さない）
+        if (base && base.id && resched && !resched.correction
+          && (draft.date !== base.date || draft.endDate !== (base.endDate || base.date))) {
+          draft.reschedules = (base.reschedules || []).concat([{
+            at: nowStamp(), by: State.user(), reason: resched.reason,
+            fromDate: base.date, fromEndDate: base.endDate || base.date, toDate: draft.date, toEndDate: draft.endDate
+          }]);
         }
         U.loading(true);
         (base && base.id ? API.updatePlan(base.id, draft) : API.addPlan(draft))
@@ -270,7 +388,8 @@
       }).length;
       root.appendChild(U.el('div', { class: 'grid k4' }, [
         Views._helpers.kpi('取組み予定', String(all.length), '件',
-          '表示期間内 ' + list.length + '件 / 完了 ' + done + '件', 'blue'),
+          '表示期間内 ' + list.length + '件 / 完了 ' + done + '件 / 期間変更 '
+          + all.filter(function (a) { return (a.reschedules || []).length; }).length + '件', 'blue'),
         Views._helpers.kpi('予定工数', U.fmtH(planned), 'h',
           '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
         Views._helpers.kpi('実績積上', U.fmtH(actual), 'h',
@@ -319,6 +438,8 @@
         roll.results.forEach(function (r) { resultDays[r.date] = true; });
         State.dailyOf(a.id, 'plan').forEach(function (r) { planDays[r.date] = true; });
         var missing = noResultYet(a, roll, todayIso);
+        // 期間を変更した取組み予定は、当初の期間を点線、当初から延長した日を斜線で表示する
+        var sl = slip(a), b = sl ? sl.base : null;
         var tr = U.el('tr', {
           style: { cursor: 'pointer', background: missing ? 'var(--danger-soft)' : null },
           title: missing ? '開始日（' + U.fmtDateFull(a.date) + '）を過ぎていますが、日次入力の実績が 1 件も紐づいていません' : null,
@@ -342,6 +463,7 @@
             style: { display: 'inline-block', background: 'var(--danger)', color: '#fff', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', fontSize: '10px' }
           }) : null,
           U.el('div', { class: 'strong', style: { fontSize: '11.5px' }, text: a.title || '(作業内容未設定)' }),
+          sl ? U.el('div', { class: 'pa-slip', title: historyTitle(a), text: '📅 ' + slipText(sl) }) : null,
           U.el('div', {
             class: 'muted', style: {
               fontSize: '10.5px', maxWidth: '220px', overflow: 'hidden',
@@ -381,17 +503,28 @@
               background: iso === todayIso ? '#f5f9ff' : (U.isWeekend(d) ? '#fffafa' : null)
             }
           });
+          var inBase = b && iso >= b.date && iso <= b.endDate;
+          // 当初の期間の外に出た日（延長・後ろ倒しした日）
+          var moved = b && inSpan && !inBase;
           if (inSpan) {
             cell.appendChild(U.el('div', {
-              title: U.fmtDateFull(iso) + (hasResult ? ' / 実績あり' : hasPlan ? ' / 予定あり' : ''),
+              title: U.fmtDateFull(iso) + (hasResult ? ' / 実績あり' : hasPlan ? ' / 予定あり' : '')
+                + (moved ? ' / 当初の期間の外（期間の変更で追加した日）' : ''),
               style: {
                 height: '14px', borderRadius: '3px',
-                background: hasResult ? color : color + '2e',
-                border: hasPlan && !hasResult ? '1px dashed ' + color : null,
+                background: hasResult ? color
+                  : moved ? 'repeating-linear-gradient(135deg, var(--warn-soft) 0 3px, ' + color + '40 3px 6px)' : color + '2e',
+                border: moved ? '1px solid var(--warn)' : hasPlan && !hasResult ? '1px dashed ' + color : null,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '9px', color: '#fff', fontWeight: 700
               },
               text: hasResult ? '✓' : ''
+            }));
+          }
+          if (inBase) {
+            cell.appendChild(U.el('div', {
+              title: '当初の期間 ' + period(b.date, b.endDate),
+              style: { borderTop: '2px dotted var(--warn)', marginTop: inSpan ? '2px' : '16px' }
             }));
           }
           tr.appendChild(cell);
@@ -406,6 +539,8 @@
           U.el('span', { text: '帯 = 取組み期間 / ' }),
           U.el('span', { style: { fontWeight: 700 }, text: '✓ 濃い色 = 実績入力あり' }),
           U.el('span', { text: ' / 破線 = 日次予定のみ / ' }),
+          U.el('span', { style: { fontWeight: 700, color: 'var(--warn)' }, text: '📅 = 期間を変更（下の点線 = 当初の期間、斜線 = 当初から延長した日）' }),
+          U.el('span', { text: ' / ' }),
           U.el('span', { style: { fontWeight: 700, color: 'var(--danger)' }, text: '赤い行（⚠ 実績なし）= 開始日を過ぎても実績が紐づいていない' }),
           U.el('span', { text: '　行クリックで編集' })
         ])
