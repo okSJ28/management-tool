@@ -13,6 +13,8 @@ from ..router import ADMIN, Router
 
 router = Router()
 
+_MODES = ("upsert", "append", "replace")
+
 
 def _safe_child(folder: Path, name: str) -> Path | None:
     """Resolve `name` inside `folder`, rejecting traversal attempts."""
@@ -36,9 +38,13 @@ def import_excel(req: Request) -> Response:
     payload = req.json()
     if _replace_denied(req, payload):
         return error("forbidden", 403)
+    if payload.get("mode", "upsert") not in _MODES:
+        return error("invalid-mode", 400)
     path = _safe_child(CONFIG.files_dir, payload.get("file") or "")
     if path is None or not path.exists():
         return error("file-not-found", 404)
+    if not excel_io.HAS_OPENPYXL:
+        return error("openpyxl-missing", 500)
     result = excel_io.import_workbook(path)
     summary = STORE.merge_tasks(result["tasks"], payload.get("mode", "upsert"))
     if result["entries"] and payload.get("withEntries", True):
@@ -47,8 +53,10 @@ def import_excel(req: Request) -> Response:
         for member, months in result["entries"].items():
             entries.setdefault(member, {}).update(months)
         members = data["masters"].setdefault("members", [])
+        # 担当者から外した名前（削除した担当者・特権管理者）は戻さない
+        excluded = set(data["masters"].get("excludedMembers") or [])
         for member in result["entries"]:
-            if member not in members:
+            if member not in members and member not in excluded:
                 members.append(member)
         STORE._pending["entries"] = True
         STORE._pending["masters"] = True
@@ -63,6 +71,8 @@ def import_csv(req: Request) -> Response:
     payload = req.json()
     if _replace_denied(req, payload):
         return error("forbidden", 403)
+    if payload.get("mode", "upsert") not in _MODES:
+        return error("invalid-mode", 400)
     raw = (payload.get("text") or "").encode("utf-8")
     rows = excel_io.read_csv(raw, payload.get("type", "mfg"))
     return json_response(STORE.merge_tasks(rows, payload.get("mode", "upsert")))
@@ -73,13 +83,10 @@ def import_json(req: Request) -> Response:
     """Full restore. Admin only because it also overwrites the settings."""
     payload = req.json()
     incoming = payload.get("data") or {}
-    data = STORE.load()
-    if "tasks" in incoming:
-        STORE.replace_tasks(incoming["tasks"])
-    if "masters" in incoming:
-        STORE.update_masters(incoming["masters"])
-    if "entries" in incoming:
-        data["entries"] = incoming["entries"]
-        STORE._mark_full()
-        STORE.save()
-    return json_response({"ok": True})
+    if not isinstance(incoming, dict):
+        return error("invalid-json", 400)
+    try:
+        counts = STORE.restore(incoming)
+    except ValueError:
+        return error("invalid-settings", 400)
+    return json_response({"ok": True, **counts})

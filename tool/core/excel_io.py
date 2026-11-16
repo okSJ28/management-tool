@@ -47,7 +47,8 @@ def _match_key(header: str, aliases: dict[str, str]) -> str | None:
 def list_excel_files(folder: Path) -> list[dict[str, Any]]:
     results = []
     for path in sorted(folder.glob("*.xls*")):
-        if path.name.startswith("~$"):
+        # openpyxl で読めない旧形式（.xls など）と、Excel が開いている間の一時ファイルは除く
+        if path.suffix.lower() not in (".xlsx", ".xlsm") or path.name.startswith("~$"):
             continue
         stat = path.stat()
         results.append({

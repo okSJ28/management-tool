@@ -433,6 +433,52 @@ class Store:
             self.save()
             return {"added": added, "updated": updated, "skipped": 0}
 
+    def restore(self, incoming: dict) -> dict:
+        """JSON バックアップからの復元。含まれるキー（tasks / plans / masters / entries / savedViews）だけを置き換える。"""
+        with _LOCK:
+            data = self.load()
+            masters = incoming.get("masters")
+            masters = dict(masters) if isinstance(masters, dict) else None
+            if masters is not None and "settings" in masters:
+                # 不正な計算パラメータで途中まで復元されないよう、何も変える前に検証する（ValueError）
+                masters["settings"] = model.validate_settings(masters["settings"] or {})
+            if masters is not None:
+                for key, value in masters.items():
+                    if key == "settings":
+                        data["masters"]["settings"].update(value)
+                    else:
+                        data["masters"][key] = value
+            settings = data["masters"]["settings"]
+            if isinstance(incoming.get("tasks"), list):
+                tasks = []
+                for raw in incoming["tasks"]:
+                    task = model.normalize_task(raw, settings)
+                    task["id"] = raw.get("id") or uuid.uuid4().hex[:12]
+                    task["createdAt"] = raw.get("createdAt") or _now()
+                    task["updatedAt"] = raw.get("updatedAt") or task["createdAt"]
+                    tasks.append(task)
+                data["tasks"] = tasks
+            else:
+                self.recompute_all()
+            if isinstance(incoming.get("plans"), list):
+                plans = []
+                for raw in incoming["plans"]:
+                    plan = model.normalize_plan(raw)
+                    plan["id"] = raw.get("id") or uuid.uuid4().hex[:12]
+                    plan["createdAt"] = raw.get("createdAt") or _now()
+                    plan["updatedAt"] = raw.get("updatedAt") or plan["createdAt"]
+                    plans.append(plan)
+                data["plans"] = plans
+            if isinstance(incoming.get("entries"), dict):
+                data["entries"] = incoming["entries"]
+            if isinstance(incoming.get("savedViews"), list):
+                data["savedViews"] = incoming["savedViews"]
+            self._mark_full()
+            self.sync_masters()
+            self._sync_plan_masters()
+            self.save()
+            return {"tasks": len(data["tasks"]), "plans": len(data.get("plans") or [])}
+
     # ----------------------------------------------------------- masters
     def update_masters(self, patch: dict) -> dict:
         with _LOCK:
@@ -515,7 +561,7 @@ class Store:
             plan["updatedBy"] = user or plan.get("updatedBy")
             data.setdefault("plans", []).append(plan)
             self._mark_plan(plan)
-            self._sync_assignment_status([plan.get("assignmentId")])
+            self._sync_assignment_status(_result_links([plan]))
             self._sync_plan_masters()
             self.save()
             return plan
@@ -533,7 +579,7 @@ class Store:
                     updated["updatedBy"] = user or plan.get("updatedBy")
                     plans[index] = updated
                     self._mark_plan(updated)
-                    self._sync_assignment_status([plan.get("assignmentId"), updated.get("assignmentId")])
+                    self._sync_assignment_status(_result_links([plan, updated]))
                     self._sync_plan_masters()
                     self.save()
                     return updated
@@ -545,11 +591,18 @@ class Store:
             target = set(ids)
             plans = data.setdefault("plans", [])
             before = len(plans)
-            linked = [p.get("assignmentId") for p in plans if p.get("id") in target]
+            linked = _result_links(p for p in plans if p.get("id") in target)
+            gone = {p.get("id") for p in plans if p.get("id") in target and p.get("kind") == "assignment"}
             data["plans"] = [p for p in plans if p.get("id") not in target]
             removed = before - len(data["plans"])
             if removed:
                 self._mark_plan_deleted(target)
+                # 削除した取組み予定に紐づいていた日次の記録は残し、紐付けだけを外す
+                for p in data["plans"]:
+                    if p.get("assignmentId") in gone:
+                        p["assignmentId"] = None
+                        p["updatedAt"] = _now()
+                        self._mark_plan(p)
                 self._sync_assignment_status(linked)
                 self.save()
             return removed
@@ -567,7 +620,7 @@ class Store:
                 data.setdefault("plans", []).append(plan)
                 self._mark_plan(plan)
                 created.append(plan)
-            self._sync_assignment_status([raw.get("assignmentId")])
+            self._sync_assignment_status(_result_links(created))
             self._sync_plan_masters()
             self.save()
             return created
@@ -596,8 +649,8 @@ class Store:
 
             removed = 0
             target = {i for i in (delete_ids or []) if i}
-            # 紐づく実績が変わる取組み予定（削除する記録・保存前後の記録の紐づけ先）
-            linked = [p.get("assignmentId") for p in plans if p.get("id") in target]
+            # 紐づく実績が変わる取組み予定（削除する実績・保存前後の実績の紐づけ先）
+            linked = _result_links(p for p in plans if p.get("id") in target)
             if target:
                 before = len(plans)
                 plans = [p for p in plans if p.get("id") not in target]
@@ -612,7 +665,7 @@ class Store:
                 plan_id = raw.get("id")
                 if plan_id and plan_id in by_id:
                     old = plans[by_id[plan_id]]
-                    linked.append(old.get("assignmentId"))
+                    linked += _result_links([old])
                     plan = model.normalize_plan({**old, **raw, "id": plan_id})
                     plan["id"] = plan_id
                     plan["createdAt"] = old.get("createdAt")
@@ -631,13 +684,18 @@ class Store:
                     added += 1
                 self._mark_plan(plan)
                 saved.append(plan)
-                linked.append(plan.get("assignmentId"))
+                linked += _result_links([plan])
 
             if added or updated or removed:
                 self._sync_assignment_status(linked)
                 self._sync_plan_masters()
                 self.save()
             return {"plans": saved, "added": added, "updated": updated, "removed": removed}
+
+
+def _result_links(records) -> list:
+    """実績（result）が紐づく取組み予定の ID。予定（plan）の保存ではステータスを切り替えない。"""
+    return [r.get("assignmentId") for r in records if r.get("kind") == "result" and r.get("assignmentId")]
 
 
 def _dedupe_key(task: dict) -> tuple:

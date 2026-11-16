@@ -172,7 +172,8 @@
 
   function openColumnChooser(rerender) {
     var type = F.type === 'all' ? 'mfg' : F.type;
-    var current = columns[type] || State.schema.tableColumns[type].slice();
+    // 保存済みの配列を直接変えると、キャンセルしても列が増えたままになるため複製して編集する
+    var current = (columns[type] || State.schema.tableColumns[type]).slice();
     var box = U.el('div');
     box.appendChild(U.el('p', { class: 'muted', text: '一覧に表示する列を選択してください。' }));
     var grid = U.el('div', { class: 'col-chooser' });
@@ -420,6 +421,16 @@
     });
   }
 
+  /* --------------------------------------------------- CSV 出力 */
+  // CSV は種別ごとに列が違うため 1 種別ずつ出す。ids が空だとサーバーは全件を返すので、0 件のときは出さない
+  function exportCsv(tasks) {
+    if (!tasks.length) { U.toast('出力する行がありません', 'warn'); return; }
+    var types = U.uniq(tasks.map(function (t) { return t.type; }));
+    if (types.length > 1) { U.toast('製造と詳細設計は別のファイルになります。種別を絞り込んでから出力してください', 'warn'); return; }
+    location.href = '/api/export/csv?type=' + encodeURIComponent(types[0]) + '&ids=' +
+      encodeURIComponent(tasks.map(function (t) { return t.id; }).join(','));
+  }
+
   /* --------------------------------------------------- 一括操作 */
   function buildBulkBar(rows, rerender) {
     if (!selected.size) return null;
@@ -447,7 +458,7 @@
 
     bar.appendChild(U.el('button', {
       class: 'btn btn-sm', text: 'CSV出力（選択分）', onclick: function () {
-        location.href = '/api/export/csv?type=' + (F.type === 'all' ? 'mfg' : F.type) + '&ids=' + encodeURIComponent(ids.join(','));
+        exportCsv(State.tasks.filter(function (t) { return selected.has(t.id); }));
       }
     }));
     bar.appendChild(U.el('div', { class: 'spacer' }));
@@ -540,10 +551,7 @@
         }),
         U.el('button', {
           class: 'btn btn-sm', text: '⬇ CSV出力（絞込結果）',
-          onclick: function () {
-            var ids = rows.map(function (t) { return t.id; }).join(',');
-            location.href = '/api/export/csv?type=' + (F.type === 'all' ? 'mfg' : F.type) + '&ids=' + encodeURIComponent(ids);
-          }
+          onclick: function () { exportCsv(rows); }
         }),
         U.el('button', { class: 'btn btn-sm', text: '⬆ 取込', onclick: function () { App.go('io'); } }),
         U.el('div', { class: 'spacer', style: { flex: 1 } }),

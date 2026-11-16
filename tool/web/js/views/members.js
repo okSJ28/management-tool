@@ -6,8 +6,13 @@
   var Views = global.Views = global.Views || {};
   var selectedMember = null;
 
+  /* その月に完了したタスク（終了日がその月で、ステータスが完了）の実績。ダッシュボードの「今月完了」と同じ基準 */
+  function isDoneIn(t, monthKey) {
+    return t.effectiveStatus === State.enums.status.done && U.monthKey(t.endDate) === monthKey;
+  }
+
   function monthStats(tasks, monthKey) {
-    var inMonth = tasks.filter(function (t) { return U.monthKey(t.endDate) === monthKey; });
+    var inMonth = tasks.filter(function (t) { return isDoneIn(t, monthKey); });
     var mfg = inMonth.filter(function (t) { return t.type === 'mfg'; });
     return {
       count: inMonth.length,
@@ -153,7 +158,7 @@
       Charts.line(box, {
         labels: months.map(U.monthLabel), area: true,
         series: [
-          { name: '完了件数', color: '#2563eb', values: months.map(function (m) { return all.filter(function (t) { return U.monthKey(t.endDate) === m; }).length; }) },
+          { name: '完了件数', color: '#2563eb', values: months.map(function (m) { return all.filter(function (t) { return isDoneIn(t, m); }).length; }) },
           { name: '換算step', color: '#7c3aed', axis: 'right', values: months.map(function (m) { return Math.round(U.sum(mfgAll.filter(function (t) { return U.monthKey(t.endDate) === m; }), function (t) { return t.convStep; })); }) }
         ], height: 230
       });
@@ -247,7 +252,7 @@
       var E = State.enums.status;
       var bar = U.el('div', { class: 'filterbar' }, [
         U.el('strong', { text: '稼働サマリ' }),
-        U.el('span', { class: 'muted', text: '進行中 ' + State.tasks.filter(function (t) { return t.effectiveStatus === E.doing; }).length + '件 / 担当者 ' + members.length + '名' }),
+        U.el('span', { class: 'muted', text: '進行中 ' + State.tasks.filter(function (t) { return t.effectiveStatus === E.doing || t.effectiveStatus === E.review; }).length + '件 / 担当者 ' + members.length + '名' }),
         U.el('div', { class: 'spacer' }),
         U.el('button', { class: 'btn btn-sm', text: 'ガントで見る', onclick: function () { App.go('gantt'); } })
       ]);

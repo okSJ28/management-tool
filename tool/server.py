@@ -99,7 +99,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------- input
     def _read_body(self) -> bytes:
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.close_connection = True
+            raise ApiError("invalid-json", 400) from None
         if length <= 0:
             return b""
         if length > CONFIG.max_body:
@@ -112,7 +116,11 @@ class Handler(BaseHTTPRequestHandler):
         allowed = CONFIG.allowed_hosts
         if not allowed:
             return True
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+        host = (self.headers.get("Host") or "").strip().lower()
+        if host.startswith("["):              # IPv6: [::1] / [::1]:8765
+            host = host[1:].split("]", 1)[0]
+        else:
+            host = host.rsplit(":", 1)[0]
         return host in allowed
 
     def log_message(self, fmt, *args):  # replaced by the explicit request log

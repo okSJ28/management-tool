@@ -7,6 +7,8 @@
 
   var G = { groupBy: 'assignee1', scale: 'day', range: 'q', filterProject: '', filterAssignee: '', onlyOpen: false };
 
+  var MAX_DAYS = 400;
+
   function rangeDates(tasks, opt) {
     var today = U.today();
     if (opt && opt.days) {
@@ -30,7 +32,10 @@
   function renderInto(container, tasks, opt) {
     opt = opt || {};
     var r = rangeDates(tasks, opt);
-    var span = Math.min(U.diffDays(r.from, r.to) + 1, 400);
+    var span = U.diffDays(r.from, r.to) + 1;
+    // 1 日 1 列のため 400 日までにする。超えるときは古い側を切り、その旨を表示する
+    var cut = span > MAX_DAYS;
+    if (cut) { r.from = U.addDays(r.to, -(MAX_DAYS - 1)); span = MAX_DAYS; }
     if (span < 1) span = 30;
     var days = [];
     for (var i = 0; i < span; i++) days.push(U.addDays(r.from, i));
@@ -39,6 +44,10 @@
 
     var visible = tasks.filter(function (t) { return Logic.overlaps(t, fromIso, toIso); });
     U.clear(container);
+    if (cut) {
+      container.appendChild(U.el('div', { class: 'muted', style: { margin: '0 0 6px' },
+        text: '期間が ' + MAX_DAYS + ' 日を超えるため、' + U.fmtDateFull(fromIso) + '〜' + U.fmtDateFull(toIso) + ' を表示しています（それより前に終わるタスクは表示しません）' }));
+    }
     if (!visible.length) {
       container.appendChild(U.el('div', { class: 'empty', html: '<span class="big">📆</span>この期間に該当するタスクがありません' }));
       return;

@@ -48,7 +48,10 @@ class Request:
     def json(self) -> dict:
         if not self.body:
             return {}
-        payload = json.loads(self.body.decode("utf-8"))
+        try:
+            payload = json.loads(self.body.decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise ApiError("invalid-json", 400) from exc
         return payload if isinstance(payload, dict) else {}
 
     def q(self, name: str, default: str = "") -> str:

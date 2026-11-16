@@ -80,10 +80,15 @@
     if (field.type === 'select') {
       input = U.el('select');
       input.appendChild(U.el('option', { value: '', text: '—' }));
-      State.options(field.key).forEach(function (o) {
+      var opts = State.options(field.key);
+      opts.forEach(function (o) {
         var label = field.key === 'type' ? State.typeLabel(o) : o;
         input.appendChild(U.el('option', { value: o, text: label, selected: String(value || '') === String(o) }));
       });
+      // マスタにない値（取込んだ値・マスタから外した値）も選択肢に残す。無いと空欄に見え、セル編集で値が消える
+      if (value && opts.map(String).indexOf(String(value)) < 0) {
+        input.appendChild(U.el('option', { value: value, text: value + '（マスタにない値）' }));
+      }
       input.value = value || '';
     } else if (field.type === 'select-free') {
       input = U.el('input', { type: 'text', list: datalistFor(field), value: value === null || value === undefined ? '' : value });

@@ -182,9 +182,17 @@
       foot.appendChild(el('button', { class: 'btn btn-danger', text: okLabel || 'OK', onclick: function () { close(true); } }));
       modal.appendChild(foot);
       backdrop.hidden = false;
-      function close(v) { backdrop.hidden = true; resolve(v); }
+      function close(v) { backdrop.hidden = true; modalCancel = null; resolve(v); }
       backdrop.onclick = function (e) { if (e.target === backdrop) close(false); };
+      modalCancel = function () { close(false); };
     });
+  }
+  var modalCancel = null;
+
+  /* Esc: 確認ダイアログが出ていればそれだけをキャンセルし、無ければドロワーを閉じる */
+  function closeTopOverlay() {
+    if (modalCancel) { modalCancel(); return; }
+    closeDrawer();
   }
 
   function openDrawer(title, bodyNode, footNodes) {
@@ -222,6 +230,6 @@
     num: num, fmtNum: fmtNum, fmtH: fmtH, sum: sum, avg: avg, groupBy: groupBy, uniq: uniq, debounce: debounce,
     PALETTE: PALETTE, colorOf: colorOf, initials: initials,
     toast: toast, loading: loading, confirmDialog: confirmDialog,
-    openDrawer: openDrawer, closeDrawer: closeDrawer, download: download
+    openDrawer: openDrawer, closeDrawer: closeDrawer, closeTopOverlay: closeTopOverlay, download: download
   };
 })(window);

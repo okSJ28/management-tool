@@ -22,10 +22,11 @@
   /* 解消を登録していない遅延（日次入力の「未解消の遅延」から解消する） */
   function isOpenDelay(p) { return isDelayed(p) && !p.delayResolvedAt; }
 
-  function filteredPlans() {
+  /* anyKind: 種別（予定／実績）の絞り込みを無視する（未解消の遅延の件数は種別に関係なく数える） */
+  function filteredPlans(anyKind) {
     return (State.plans || []).filter(function (p) {
       if (isAssignment(p)) return false;
-      if (B.kind && kindOf(p) !== B.kind) return false;
+      if (!anyKind && B.kind && kindOf(p) !== B.kind) return false;
       if (B.category && p.category !== B.category) return false;
       if (B.member && p.member !== B.member) return false;
       if (B.project && p.project !== B.project) return false;
@@ -243,10 +244,11 @@
       }
 
       var tb = U.el('tbody');
+      var delayPlans = B.kind ? filteredPlans(true) : plans;
       members.forEach(function (m) {
         var tr = U.el('tr');
-        // 未解消の遅延の件数（表示中の期間に関係なく数える。工程・案件などの絞り込み条件は反映）
-        var delays = plans.filter(function (p) { return p.member === m && isOpenDelay(p); }).length;
+        // 未解消の遅延の件数（表示中の期間・種別に関係なく数える。工程・案件などの絞り込み条件は反映）
+        var delays = delayPlans.filter(function (p) { return p.member === m && isOpenDelay(p); }).length;
         tr.appendChild(U.el('td', { class: 'col-pin' }, [
           U.el('span', {
             class: 'avatar', style: {
@@ -353,7 +355,10 @@
       root.appendChild(bar);
 
       if (!plans.length) {
-        root.appendChild(U.el('div', { class: 'empty', html: '<span class="big">📊</span>業務予定がまだ登録されていません' }));
+        root.appendChild(U.el('div', { class: 'empty', html: '<span class="big">📊</span>'
+          + ((State.plans || []).length ? '期間内の日次の予定・実績はありません' : '業務予定がまだ登録されていません') }));
+        // 日次の記録がなくても、期間内の取組み予定の予定変更は表示する
+        if (assigns.length) root.appendChild(rescheduleCard(assigns));
         return;
       }
 
@@ -361,15 +366,15 @@
       var resultRows = plans.filter(isResult);
       var planned = U.sum(planRows, function (p) { return p.hours; });
       var actual = U.sum(resultRows, function (p) { return p.actualHours; });
-      var avgProgress = resultRows.length
-        ? U.sum(resultRows, function (p) { return p.progress; }) / resultRows.length : 0;
+      // 進捗率が空の実績（単票エディタでは任意）は平均に含めない
+      var avgProgress = U.avg(resultRows, function (p) { return p.progress; });
       root.appendChild(U.el('div', { class: 'grid k4' }, [
         Views._helpers.kpi('記録件数', String(plans.length), '件',
           '☀ 予定 ' + planRows.length + ' / 🌙 実績 ' + resultRows.length + ' / 📌 取組み ' + assigns.length
           + '（担当 ' + U.uniq(plans.map(function (p) { return p.member; })).length + '名）', 'blue'),
         Views._helpers.kpi('予定工数', U.fmtH(planned), 'h', '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
         Views._helpers.kpi('実績工数', U.fmtH(actual), 'h', planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
-        Views._helpers.kpi('平均進捗率', resultRows.length ? U.fmtNum(avgProgress, 0) : '—', '%',
+        Views._helpers.kpi('平均進捗率', avgProgress === null ? '—' : U.fmtNum(avgProgress, 0), '%',
           '完了（進捗100%） ' + resultRows.filter(function (p) { return p.progress === 100; }).length + '件'
           + ' / 遅延 ' + resultRows.filter(isDelayed).length + '件（未解消 ' + resultRows.filter(isOpenDelay).length + '件）', 'amber')
       ]));

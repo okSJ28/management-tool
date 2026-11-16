@@ -23,6 +23,13 @@
     }
   ];
 
+  /* 画面が属するアプリ（設定は両アプリ共通） */
+  function appOf(key) {
+    return APPS.filter(function (a) {
+      return a.groups.some(function (g) { return g.items.indexOf(key) >= 0; });
+    })[0];
+  }
+
   /* adminOnly な画面（設定）は管理者だけが開ける */
   function canView(key) {
     var v = Views[key];
@@ -72,9 +79,7 @@
         if (location.hash !== '#' + this.current) location.hash = this.current;
         return;
       }
-      var owner = APPS.filter(function (a) {
-        return a.groups.some(function (g) { return g.items.indexOf(key) >= 0; });
-      })[0];
+      var owner = appOf(key);
       if (owner && owner.key !== this.appKey && key !== 'settings') {
         this.appKey = owner.key;
         try { localStorage.setItem('dpm.app', owner.key); } catch (e) { /* ignore */ }
@@ -334,7 +339,7 @@
         var cur = Views[App.current];
         if (cur && cur.onSave && document.getElementById('drawer').hidden) { e.preventDefault(); cur.onSave(); }
       }
-      if (e.key === 'Escape') { U.closeDrawer(); document.getElementById('modalBackdrop').hidden = true; }
+      if (e.key === 'Escape') U.closeTopOverlay();
     });
     window.addEventListener('hashchange', function () {
       var key = location.hash.replace('#', '');
@@ -367,6 +372,9 @@
       if (!APPS.some(function (a) { return a.key === App.appKey; })) App.appKey = 'dev';
       var key = location.hash.replace('#', '');
       App.current = canView(key) ? key : App.appDef().groups[0].items[0];
+      // 他のアプリの画面の URL を開いたときは、そのアプリに切り替える
+      var owner = appOf(App.current);
+      if (owner && App.current !== 'settings') App.appKey = owner.key;
       if (Views[App.current].onEnter) Views[App.current].onEnter(null);
       App.render();
       window.__appReady = true;

@@ -215,8 +215,10 @@
       ]));
       grid.appendChild(changeBox);
     } else {
-      field('開始日', input({ type: 'date', value: draft.date || '' }, 'date'));
-      field('終了日', input({ type: 'date', value: draft.endDate || '' }, 'endDate'));
+      var startIn = input({ type: 'date', value: draft.date || '' }, 'date');
+      var endIn = input({ type: 'date', value: draft.endDate || '' }, 'endDate');
+      field('開始日', startIn);
+      field('終了日', endIn);
       field('予定工数(h)', input({
         type: 'number', step: '0.5', min: '0',
         value: draft.hours === null || draft.hours === undefined ? '' : draft.hours
@@ -248,8 +250,12 @@
       draft.project = t.project;
       projectInput.value = t.project || '';
       if (!draft.title) { draft.title = t.programId + ' ' + (t.kubun || ''); titleInput.value = draft.title; }
-      if (!draft.date && t.startDate) { draft.date = t.startDate; }
-      if (!draft.endDate && t.endDate) { draft.endDate = t.endDate; }
+      // 新規登録では、空いている期間（開始日は初期値の今日のままなら）をタスクの期間で埋めて画面にも出す。
+      // 登録済みの期間は「📅 予定を変更」からだけ変えるため触らない
+      if (startIn) {
+        if (t.startDate && (!draft.date || draft.date === (base || {}).date)) { draft.date = t.startDate; startIn.value = t.startDate; }
+        if (t.endDate && !draft.endDate) { draft.endDate = t.endDate; endIn.value = t.endDate; }
+      }
     });
     field('開発タスクと紐付け', linkSel, true, '担当者の開発タスクから選べます（開発プログラム管理のタスクと突き合わせできます）');
 

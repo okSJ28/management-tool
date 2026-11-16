@@ -46,13 +46,18 @@ def _may_write(req: Request, new_records: Iterable[dict] = (), ids: Iterable[str
     own = (req.account or {}).get("member") or ""
     if not own:
         return False
-    existing = {p.get("id"): p.get("member") for p in STORE.plans() if p.get("id")}
+    existing = {p.get("id"): p for p in STORE.plans() if p.get("id")}
     for r in new_records:
+        old = existing.get(r.get("id")) or {}
         # 担当者を省略した場合は、既存の記録の担当者のまま更新される
-        member = r["member"] if "member" in r else existing.get(r.get("id"))
+        member = r["member"] if "member" in r else old.get("member")
         if member != own:
             return False
-    return all(existing[i] == own for i in ids if i in existing)
+        # 他の担当者の取組み予定に新たに紐づけると、そのステータスが自動で変わるため認めない
+        link = r.get("assignmentId")
+        if link and link != old.get("assignmentId") and (existing.get(link) or {}).get("member") not in (None, own):
+            return False
+    return all(existing[i].get("member") == own for i in ids if i in existing)
 
 
 @router.get("/api/plans")
@@ -63,7 +68,8 @@ def list_plans(_req: Request) -> Response:
 @router.post("/api/plans")
 def create_plan(req: Request) -> Response:
     payload = req.json()
-    if not _may_write(req, [{"member": payload.get("member")}], [payload.get("id")]):
+    if not _may_write(req, [{"member": payload.get("member"), "assignmentId": payload.get("assignmentId")}],
+                      [payload.get("id")]):
         return error(_FORBIDDEN, 403)
     bad = _value_error([payload])
     if bad:
