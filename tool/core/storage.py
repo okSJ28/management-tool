@@ -310,9 +310,12 @@ class Store:
         return self.load().setdefault("plans", [])
 
     def recompute_all(self) -> None:
-        data = self.load()
-        settings = data["masters"]["settings"]
-        data["tasks"] = [model.compute(t, settings) for t in data["tasks"]]
+        # 画面の読込（bootstrap・タスク一覧）からも呼ばれる。ロックなしだと、作り直している間に
+        # 保存されたタスクの追加・変更・削除が、作り直した一覧で上書きされてメモリから消える
+        with _LOCK:
+            data = self.load()
+            settings = data["masters"]["settings"]
+            data["tasks"] = [model.compute(t, settings) for t in data["tasks"]]
 
     def sync_masters(self) -> None:
         """Keep member/project master lists in sync with the actual data."""
