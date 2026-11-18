@@ -298,8 +298,8 @@
     if (!isNew && !State.canEditTask(task)) { openViewer(task, onSaved); return; }
     var actualMode = !isNew && opts.mode === 'actual';
     var base = task || { type: 'mfg', status: '', progress: null };
-    // 新規登録の担当者①は、ログイン中の人が担当者ならその人を初期値にする
-    if (isNew && !base.assignee1 && State.members().indexOf(State.user()) >= 0) {
+    // 新規登録の担当者①は、ログイン中の人が担当者ならその人を初期値にする（開いている年次に関係なく）
+    if (isNew && !base.assignee1 && State.allMembers().indexOf(State.user()) >= 0) {
       base = Object.assign({}, base, { assignee1: State.user() });
     }
     var form = buildForm(base, actualMode

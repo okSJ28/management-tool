@@ -559,6 +559,10 @@
       }
     },
     render: function (root) {
+      // 年次を切り替えたときなど、開いている年次にない担当者・案件の条件と「自分の担当」は外す
+      if (F.assignee && State.members().indexOf(F.assignee) < 0) { F.assignee = ''; savePrefs(); }
+      if (F.project && State.taskProjects().indexOf(F.project) < 0) { F.project = ''; savePrefs(); }
+      if (F.quick === 'mine' && !myMember()) { F.quick = ''; savePrefs(); }
       var rows = filtered();
       function rerender(soft) { App.render(); }
 

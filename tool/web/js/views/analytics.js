@@ -301,6 +301,8 @@
     desc: '観点（軸）と指標を切り替えて多角的に分析',
     icon: '📈',
     render: function (root) {
+      // 年次を切り替えたときなど、開いている年次にない案件の条件は外す
+      if (A.project && State.taskProjects().indexOf(A.project) < 0) A.project = '';
       var bar = U.el('div', { class: 'filterbar' });
 
       var seg = U.el('div', { class: 'seg' });

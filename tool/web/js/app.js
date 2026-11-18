@@ -7,10 +7,12 @@
   var APPS = [
     {
       key: 'dev', label: '開発プログラム管理', short: '開発管理', icon: '🧩',
+      // graded のグループは年次（1年目／2年目／3年目以上）ごとに出し、その年次のタスク・担当者だけを扱う
       groups: [
-        { group: 'メイン', items: ['dashboard', 'tasks', 'members'] },
-        { group: '可視化・分析', items: ['gantt', 'analytics', 'pivot'] },
-        { group: '管理', items: ['entry', 'io', 'settings'] }
+        { group: 'メイン', items: ['dashboard', 'tasks', 'members'], graded: true },
+        { group: '可視化・分析', items: ['gantt', 'analytics', 'pivot'], graded: true },
+        { group: '確認', items: ['entry'], graded: true },
+        { group: '管理', items: ['io', 'settings'] }
       ]
     },
     {
@@ -28,6 +30,18 @@
     return APPS.filter(function (a) {
       return a.groups.some(function (g) { return g.items.indexOf(key) >= 0; });
     })[0];
+  }
+
+  /* 年次ごとに出す画面か */
+  function isGraded(key) {
+    return APPS.some(function (a) {
+      return a.groups.some(function (g) { return g.graded && g.items.indexOf(key) >= 0; });
+    });
+  }
+
+  /* 年次の画面ではその年次に絞り込み、それ以外（取込 / 出力・設定・業務予定管理）は全件にする */
+  function applyScope() {
+    State.gradeScope = isGraded(App.current) ? App.devGrade : null;
   }
 
   /* adminOnly な画面（設定）は管理者だけが開ける */
@@ -48,6 +62,7 @@
   var App = {
     appKey: 'dev',
     current: 'dashboard',
+    devGrade: '1年目',
     params: null,
     syncTimer: null,
 
@@ -55,6 +70,16 @@
     appDef: function () {
       var self = this;
       return APPS.filter(function (a) { return a.key === self.appKey; })[0] || APPS[0];
+    },
+
+    /* 開発管理の年次を切り替える。年次の画面を開いていればそのまま、取込 / 出力・設定ならダッシュボードを開く */
+    setGrade: function (grade) {
+      if (grade === this.devGrade && isGraded(this.current)) return;
+      if (!leaveOk()) return;
+      this.devGrade = grade;
+      try { localStorage.setItem('dpm.devGrade', grade); } catch (e) { /* ignore */ }
+      if (isGraded(this.current)) this.render({ top: true });
+      else this.go('dashboard');
     },
 
     switchApp: function (key) {
@@ -86,6 +111,7 @@
       }
       this.current = key;
       this.params = params || null;
+      applyScope();
       if (Views[key].onEnter) Views[key].onEnter(this.params);
       location.hash = key;
       this.render({ top: true });
@@ -94,6 +120,7 @@
 
     render: function (opts) {
       if (!canView(this.current)) this.current = this.appDef().groups[0].items[0];
+      applyScope();
       var view = Views[this.current] || Views.dashboard;
       document.getElementById('viewTitle').textContent = view.title;
       document.getElementById('viewDesc').textContent = view.desc || '';
@@ -140,13 +167,13 @@
         members: State.members().length,
         dashboard: State.tasks.filter(function (t) { return t.isLate; }).length || null
       };
-      this.appDef().groups.forEach(function (g) {
+      function group(g, target) {
         var items = g.items.filter(canView);
         if (!items.length) return;
-        nav.appendChild(U.el('div', { class: 'nav-group-title', text: g.group }));
+        target.appendChild(U.el('div', { class: 'nav-group-title', text: g.group }));
         items.forEach(function (key) {
           var v = Views[key];
-          nav.appendChild(U.el('button', {
+          target.appendChild(U.el('button', {
             class: 'nav-item' + (self.current === key ? ' active' : ''),
             onclick: function () { self.go(key); }, title: v.title
           }, [
@@ -155,12 +182,34 @@
             counts[key] ? U.el('span', { class: 'badge', text: String(counts[key]) }) : null
           ]));
         });
-      });
+      }
+      var groups = this.appDef().groups;
+      var graded = groups.filter(function (g) { return g.graded; });
+      // 年次の見出しを並べ、開いている年次（1 つ）の下に画面を出す。見出しの数字はその年次のタスク件数
+      if (graded.length) {
+        State.GRADE_GROUPS.forEach(function (grade) {
+          var open = self.devGrade === grade;
+          var n = State.allTasks().filter(function (t) { return State.memberGrade(t.assignee1) === grade; }).length;
+          nav.appendChild(U.el('button', {
+            class: 'nav-grade' + (open ? ' open' : '') + (open && isGraded(self.current) ? ' current' : ''),
+            onclick: function () { self.setGrade(grade); }, title: grade + 'のタスク・担当者だけを表示します'
+          }, [
+            U.el('i', { text: open ? '▾' : '▸' }),
+            U.el('span', { text: grade }),
+            U.el('span', { class: 'badge', text: String(n) })
+          ]));
+          if (!open) return;
+          var box = U.el('div', { class: 'nav-grade-body' });
+          graded.forEach(function (g) { group(g, box); });
+          nav.appendChild(box);
+        });
+      }
+      groups.forEach(function (g) { if (!g.graded) group(g, nav); });
     },
 
     renderSync: function () {
       document.getElementById('syncInfo').textContent =
-        'タスク ' + State.tasks.length + '件 / 予定 ' + (State.plans || []).length + '件 / 担当 ' + State.members().length + '名';
+        'タスク ' + State.allTasks().length + '件 / 予定 ' + (State.plans || []).length + '件 / 担当 ' + State.allMembers().length + '名';
       document.getElementById('brandSub').textContent = this.appDef().label;
       var badge = document.getElementById('userBadge');
       var a = State.account;
@@ -375,12 +424,18 @@
       // 他のアプリの画面の URL を開いたときは、そのアプリに切り替える
       var owner = appOf(App.current);
       if (owner && App.current !== 'settings') App.appKey = owner.key;
+      // 開発管理の年次: 一般ユーザーは自分の年次、それ以外は前回の年次（初回は自分の年次か 1年目）
+      var own = State.memberGrade(State.user()), saved = '';
+      try { saved = localStorage.getItem('dpm.devGrade') || ''; } catch (e) { /* ignore */ }
+      if (State.GRADE_GROUPS.indexOf(saved) < 0) saved = '';
+      App.devGrade = (!State.isAdmin() && own) || saved || own || State.GRADE_GROUPS[0];
+      applyScope();
       if (Views[App.current].onEnter) Views[App.current].onEnter(null);
       App.render();
       window.__appReady = true;
       startSync();
       if (State.readOnly) U.toast('閲覧専用モードで接続しています', 'warn', 5000);
-      if (!State.tasks.length && !(State.plans || []).length) {
+      if (!State.allTasks().length && !(State.plans || []).length) {
         U.toast('データがありません。「取込 / 出力」からExcelを取り込んでください。', 'warn', 7000);
         setTimeout(function () { App.go('io'); }, 400);
       }

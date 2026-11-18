@@ -116,10 +116,31 @@
 
   /* --------------------------------------------------- state */
   var State = {
-    schema: null, enums: null, masters: null, tasks: [], plans: [], entries: {}, savedViews: [],
+    schema: null, enums: null, masters: null, plans: [], entries: {}, savedViews: [],
     folder: '', hasExcel: true, search: '', readOnly: false, shared: false,
     dataDir: '', database: '', backupKeep: 30, account: null, memberAttrs: {},
     fieldMap: {}, typeMap: {},
+
+    /* 開発管理の年次のメニュー（1年目／2年目／3年目以上）。年次「テスト」・未設定の人はどこにも入れない */
+    GRADE_GROUPS: ['1年目', '2年目', '3年目以上'],
+    /* 年次のメニューで開いている画面では、tasks は担当者①がその年次のタスクだけ、members() はその年次の担当者だけに
+       なる（App が画面に合わせて設定する。null なら全件。取込 / 出力・設定・業務予定管理は null） */
+    gradeScope: null,
+    _tasks: [],
+    get tasks() {
+      var scope = this.gradeScope, self = this;
+      if (!scope) return this._tasks;
+      return this._tasks.filter(function (t) { return self.memberGrade(t.assignee1) === scope; });
+    },
+    set tasks(list) { this._tasks = list || []; },
+    /* 年次で絞り込まない全タスク */
+    allTasks: function () { return this._tasks; },
+    /* 担当者の年次のメニュー（1年目・2年目、それ以外は 3年目以上。テスト・未設定・ユーザーの登録がない人は ''） */
+    memberGrade: function (member) {
+      var grade = this.memberAttr(member, 'grade');
+      if (!grade || grade === 'テスト') return '';
+      return this.GRADE_GROUPS.indexOf(grade) >= 0 ? grade : '3年目以上';
+    },
 
     init: function (data) {
       this.account = data.account || null;
@@ -196,8 +217,13 @@
     },
 
     members: function () {
+      var scope = this.gradeScope, self = this;
+      return this.allMembers().filter(function (m) { return !scope || self.memberGrade(m) === scope; });
+    },
+    /* 年次で絞り込まない担当者一覧 */
+    allMembers: function () {
       var set = new Set(this.masters.members || []);
-      this.tasks.forEach(function (t) {
+      this._tasks.forEach(function (t) {
         if (t.assignee1) set.add(t.assignee1);
         if (t.assignee2) set.add(t.assignee2);
       });

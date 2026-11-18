@@ -161,6 +161,9 @@
     icon: '📆',
     searchable: true,
     render: function (root) {
+      // 年次を切り替えたときなど、開いている年次にない担当者・案件の条件は外す
+      if (G.filterAssignee && State.members().indexOf(G.filterAssignee) < 0) G.filterAssignee = '';
+      if (G.filterProject && State.taskProjects().indexOf(G.filterProject) < 0) G.filterProject = '';
       var bar = U.el('div', { class: 'filterbar' });
 
       bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: 'グループ' }),
