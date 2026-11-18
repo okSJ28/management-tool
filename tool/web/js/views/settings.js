@@ -339,7 +339,7 @@
 
     var id = U.el('input', { type: 'text', value: u.id, readonly: !isNew, placeholder: '例: A250001', autocomplete: 'off' });
     var name = U.el('input', { type: 'text', value: u.name, placeholder: '例: 山田 太郎' });
-    var member = U.el('input', { type: 'text', value: u.member, list: listId, placeholder: '空欄なら氏名の姓' });
+    var member = U.el('input', { type: 'text', value: u.member, list: listId, placeholder: '空欄なら氏名（空白は詰める）' });
     var role = U.el('select', {});
     ['user', 'admin', 'owner'].forEach(function (r) {
       role.appendChild(U.el('option', { value: r, text: State.roleLabel(r), selected: u.role === r }));

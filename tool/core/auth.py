@@ -199,7 +199,8 @@ def _clean(payload: dict, current: dict | None = None) -> dict[str, Any]:
         raise AccountError("name-required")
     if role not in ROLES:
         raise AccountError("invalid-role")
-    fields = {"name": name[:40], "member": member[:40] or name.split()[0][:40], "role": role}
+    # 担当者名が空欄なら氏名のフルネーム（取込の担当者名と同じく空白は詰める）
+    fields = {"name": name[:40], "member": member[:40] or re.sub(r"\s+", "", name)[:40], "role": role}
     masters = STORE.load()["masters"]
     for field, master_key, code in ATTRIBUTES:
         value = "" if role == "owner" else str(payload.get(field, base.get(field)) or "")
