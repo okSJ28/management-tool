@@ -19,7 +19,7 @@
       key: 'plan', label: '業務予定管理', short: '業務予定', icon: '📝',
       groups: [
         { group: '入力', items: ['planAssign', 'planInput'] },
-        { group: '確認・集計', items: ['planBoard', 'planReport'] },
+        { group: '確認・集計', items: ['planBoard', 'planReport', 'planPast'] },
         { group: '管理', items: ['settings'] }
       ]
     }

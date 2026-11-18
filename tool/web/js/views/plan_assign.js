@@ -130,7 +130,8 @@
   }
 
   /* ------------------------------------------------ 登録・編集 */
-  function editor(base, onSaved) {
+  /* opts.readOnly: 自分の取組み予定でも閲覧のみで開く（過去予定） */
+  function editor(base, onSaved, opts) {
     var draft = Object.assign({
       kind: 'assignment', member: me(),
       category: (State.masters.planCategories[0] || {}).value,
@@ -138,7 +139,8 @@
     }, base || {});
     draft.kind = 'assignment';
     // 一般ユーザーは他の担当者の取組み予定を閲覧のみ
-    var editable = State.canEdit(draft.member);
+    var readOnly = !!(opts && opts.readOnly);
+    var editable = !readOnly && State.canEdit(draft.member);
 
     var grid = U.el('div', { class: 'form-grid' });
     function field(label, node, span, hint) {
@@ -278,8 +280,10 @@
     }
 
     if (!editable) {
+      // 閲覧のみ: 入力欄を変更できないようにする（保存ボタンも出さない）
+      Array.prototype.forEach.call(grid.querySelectorAll('input, select, textarea'), function (el) { el.disabled = true; });
       U.openDrawer('取組み予定を表示', grid, [
-        U.el('span', { class: 'muted', text: '他の担当者の取組み予定は変更できません' }),
+        U.el('span', { class: 'muted', text: readOnly ? '過去予定は閲覧のみです' : '他の担当者の取組み予定は変更できません' }),
         U.el('div', { class: 'spacer' }),
         U.el('button', { class: 'btn', text: '閉じる', onclick: U.closeDrawer })
       ]);
@@ -353,6 +357,11 @@
     return a.status !== '完了' && a.status !== '中止' && !!a.date && a.date < todayIso && !roll.results.length;
   }
 
+  /* 案件の絞り込みの選択肢：取組み予定に入力されている案件だけ */
+  function assignmentProjects(list) {
+    return U.uniq(list.map(function (a) { return a.project; }).filter(Boolean)).sort();
+  }
+
   /* ------------------------------------------------ 予定表 */
   Views.planAssign = {
     title: '取組み予定',
@@ -418,7 +427,7 @@
       }
       attrs.fields(A, ['grade']).forEach(function (f) { bar.appendChild(f); });
       sel('担当者', 'member', candidates);
-      sel('案件', 'project', State.projects());
+      sel('案件', 'project', assignmentProjects(State.assignments()));
       sel('ステータス', 'status', (State.masters.planStatuses || []).map(function (s) { return s.value; }));
       bar.appendChild(U.el('label', { class: 'row-flex', style: { fontSize: '11.5px', marginTop: '12px' } }, [
         U.el('input', {
@@ -616,6 +625,122 @@
         ])
       ]));
       root.appendChild(card);
+    }
+  };
+
+  /* ------------------------------------------------ 過去予定（完了した取組み予定の閲覧） */
+  var H = { grade: '', gradeInit: false, member: '', project: '', from: '', to: '' };
+
+  Views.planPast = {
+    title: '過去予定',
+    desc: '完了した取組み予定を閲覧します（変更はできません）',
+    icon: '🗂',
+    app: 'plan',
+    render: function (root) {
+      // 一般ユーザーは最初に開いたとき自分の年次で絞り込む（取組み予定と同じ。以後は選んだ条件を保持）
+      if (!H.gradeInit) {
+        H.gradeInit = true;
+        if (!State.isAdmin()) H.grade = State.memberAttr(State.user(), 'grade');
+      }
+      var attrs = Views.planBoard._attrs;
+      function inGrade(m) { return attrs.match(H, m, ['grade']); }
+      var done = State.assignments().filter(function (a) { return a.status === '完了'; });
+      var candidates = State.members().filter(inGrade);
+      if (H.member && candidates.indexOf(H.member) < 0) H.member = '';
+      // 終了日で期間を絞り込み、終了日の新しい順に並べる
+      function endOf(a) { return a.endDate || a.date || ''; }
+      var list = done.filter(function (a) {
+        if (!inGrade(a.member)) return false;
+        if (H.member && a.member !== H.member) return false;
+        if (H.project && a.project !== H.project) return false;
+        if (H.from && endOf(a) < H.from) return false;
+        if (H.to && endOf(a) > H.to) return false;
+        return true;
+      }).sort(function (x, y) {
+        if (endOf(x) !== endOf(y)) return endOf(x) < endOf(y) ? 1 : -1;
+        return (x.member || '') < (y.member || '') ? -1 : 1;
+      });
+
+      /* --- 絞り込み --- */
+      var bar = U.el('div', { class: 'filterbar' });
+      function sel(label, key, options) {
+        var s = U.el('select', { onchange: function () { H[key] = this.value; App.render(); } });
+        s.appendChild(U.el('option', { value: '', text: '(すべて)' }));
+        options.forEach(function (o) { s.appendChild(U.el('option', { value: o, text: o, selected: H[key] === o })); });
+        bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
+      }
+      function day(label, key) {
+        bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }),
+          U.el('input', { type: 'date', value: H[key], onchange: function () { H[key] = this.value; App.render(); } })]));
+      }
+      attrs.fields(H, ['grade']).forEach(function (f) { bar.appendChild(f); });
+      sel('担当者', 'member', candidates);
+      sel('案件', 'project', assignmentProjects(done));
+      day('終了日 から', 'from');
+      day('終了日 まで', 'to');
+      bar.appendChild(U.el('button', {
+        class: 'btn btn-sm', text: '⟲ 条件クリア', style: { marginTop: '12px' },
+        onclick: function () { Object.assign(H, { grade: '', member: '', project: '', from: '', to: '' }); App.render(); }
+      }));
+      root.appendChild(bar);
+
+      /* --- KPI --- */
+      var planned = U.sum(list, function (a) { return a.hours; });
+      var actual = U.sum(list, function (a) { return State.assignmentRollup(a).actualHours || 0; });
+      root.appendChild(U.el('div', { class: 'grid k4' }, [
+        Views._helpers.kpi('完了した取組み予定', String(list.length), '件', '予定を変更したもの ' + list.filter(function (a) { return (a.reschedules || []).length; }).length + '件', 'blue'),
+        Views._helpers.kpi('予定工数', U.fmtH(planned), 'h', '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
+        Views._helpers.kpi('実績積上', U.fmtH(actual), 'h', planned ? '消化率 ' + U.fmtNum(actual / planned * 100, 0) + '%' : '—', 'green'),
+        Views._helpers.kpi('担当者', String(U.uniq(list.map(function (a) { return a.member; })).length), '名', '', 'amber')
+      ]));
+
+      if (!list.length) {
+        root.appendChild(U.el('div', {
+          class: 'empty mt16', html: '<span class="big">🗂</span>'
+            + (done.length ? '条件に該当する完了した取組み予定がありません' : '完了した取組み予定はまだありません')
+        }));
+        return;
+      }
+
+      /* --- 一覧（行クリックで閲覧のみの取組み予定を開く） --- */
+      var tbl = U.el('table', { class: 'grid-table' });
+      tbl.appendChild(U.el('thead', {}, [U.el('tr', {}, ['担当者', '工程', '作業内容 / 案件', '期間', '予定h', '実績h', '消化率', '最終実績'].map(function (h, i) {
+        return U.el('th', { class: i >= 4 && i <= 6 ? 'right' : '', text: h });
+      }))]));
+      var tb = U.el('tbody');
+      list.forEach(function (a) {
+        var color = State.planColor(a.category);
+        var roll = State.assignmentRollup(a);
+        var last = roll.results.length ? roll.results[roll.results.length - 1].date : '';
+        var sl = slip(a);
+        tb.appendChild(U.el('tr', {
+          style: { cursor: 'pointer' }, title: '取組み予定を表示（閲覧のみ）',
+          onclick: function () { editor(a, null, { readOnly: true }); }
+        }, [
+          U.el('td', { class: 'strong' }, [
+            U.el('span', {
+              class: 'avatar', style: {
+                background: U.colorOf(a.member), width: '18px', height: '18px', flex: '0 0 18px',
+                fontSize: '8px', display: 'inline-grid', verticalAlign: 'middle', marginRight: '5px'
+              }, text: U.initials(a.member || '')
+            }),
+            document.createTextNode(a.member || '—')
+          ]),
+          U.el('td', {}, [U.el('span', { class: 'chip', style: { background: color + '1f', color: color }, text: a.category || '—' })]),
+          U.el('td', {}, [
+            U.el('div', { class: 'strong', style: { fontSize: '11.5px' }, text: a.title || '(作業内容未設定)' }),
+            sl ? U.el('div', { class: 'pa-slip', title: historyTitle(a), text: '📅 ' + slipText(sl) }) : null,
+            U.el('div', { class: 'muted', style: { fontSize: '10.5px' }, text: a.project || '' })
+          ]),
+          U.el('td', { class: 'mono', style: { whiteSpace: 'nowrap' }, text: U.fmtDateFull(a.date) + ' 〜 ' + U.fmtDateFull(endOf(a)) }),
+          U.el('td', { class: 'num', text: a.hours ? U.fmtH(a.hours) : '' }),
+          U.el('td', { class: 'num', text: roll.actualHours ? U.fmtH(roll.actualHours) : '' }),
+          U.el('td', { class: 'num', text: roll.rate === null ? '' : U.fmtNum(roll.rate, 0) + '%' }),
+          U.el('td', { class: 'mono', text: last ? U.fmtDateFull(last) : '' })
+        ]));
+      });
+      tbl.appendChild(tb);
+      root.appendChild(U.el('div', { class: 'card mt16' }, [U.el('div', { class: 'table-wrap' }, [tbl])]));
     }
   };
 
