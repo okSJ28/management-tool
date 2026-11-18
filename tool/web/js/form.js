@@ -294,6 +294,8 @@
   function openEditor(task, onSaved, opts) {
     opts = opts || {};
     var isNew = !task || !task.id;
+    // 一般ユーザーは担当者①・②が自分ではないタスクを編集できないため参照で開く
+    if (!isNew && !State.canEditTask(task)) { openViewer(task, onSaved); return; }
     var actualMode = !isNew && opts.mode === 'actual';
     var base = task || { type: 'mfg', status: '', progress: null };
     // 新規登録の担当者①は、ログイン中の人が担当者ならその人を初期値にする
@@ -426,14 +428,16 @@
       body.appendChild(tbl);
     });
 
+    var editable = State.canEditTask(task);
+    if (!editable) body.appendChild(U.el('p', { class: 'muted mt8', text: '担当者①・②が自分ではないため、閲覧のみです。' }));
     U.openDrawer('詳細', body, [
       U.el('div', { class: 'spacer' }),
       U.el('button', { class: 'btn', text: '閉じる', onclick: U.closeDrawer }),
-      U.el('button', {
+      editable ? U.el('button', {
         class: 'btn btn-primary', text: '編集', onclick: function () {
           U.closeDrawer(); setTimeout(function () { openEditor(task, onSaved); }, 60);
         }
-      })
+      }) : null
     ]);
   }
 

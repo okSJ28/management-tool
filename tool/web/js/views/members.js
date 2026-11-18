@@ -140,7 +140,8 @@
       U.el('h2', { text: name, style: { fontSize: '18px' } }),
       U.el('div', { class: 'spacer', style: { flex: 1 } }),
       U.el('button', { class: 'btn btn-sm', text: 'この担当者で一覧を開く', onclick: function () { App.go('tasks', { assignee: name }); } }),
-      U.el('button', { class: 'btn btn-sm btn-primary', text: '＋ タスク追加', onclick: function () { Form.openEditor({ type: 'mfg', assignee1: name }, function () { App.render(); }); } })
+      // 一般ユーザーは自分の担当のタスクだけ登録できる
+      State.canEdit(name) ? U.el('button', { class: 'btn btn-sm btn-primary', text: '＋ タスク追加', onclick: function () { Form.openEditor({ type: 'mfg', assignee1: name }, function () { App.render(); }); } }) : null
     ]));
 
     var months = Views._helpers.recentMonths(12);

@@ -16,6 +16,7 @@
     'unauthorized': 'ログインの有効期限が切れました。もう一度ログインしてください。',
     'forbidden': 'この操作は管理者のみ実行できます。',
     'forbidden-member': '他の担当者の入力は登録・変更できません（管理者のみ可能です）。',
+    'forbidden-task': '担当者①・②が自分ではないタスクは登録・変更・削除できません（管理者のみ可能です）。',
     'login-failed': 'IDまたはパスワードが正しくありません。',
     'user-exists': 'そのIDは既に登録されています。',
     'invalid-user-id': 'IDは半角英数字・ハイフン・アンダースコア（32文字以内）で入力してください。',
@@ -161,6 +162,8 @@
     isAdmin: function () { return !!(this.account && (this.account.role === 'admin' || this.account.role === 'owner')); },
     /* 業務予定・日次入力を登録・変更できる担当者か（一般ユーザーは自分の分のみ） */
     canEdit: function (member) { return this.isAdmin() || (!!member && member === this.user()); },
+    /* 開発管理のタスクを変更・削除できるか（一般ユーザーは担当者①・②が自分のもののみ） */
+    canEditTask: function (t) { return this.isAdmin() || (!!t && (this.canEdit(t.assignee1) || this.canEdit(t.assignee2))); },
     /* 担当者の属性（grade = 年次、manager = 担当管理者。担当管理者は管理者にだけ届く） */
     memberAttr: function (member, key) { return ((this.memberAttrs || {})[member] || {})[key] || ''; },
     roleLabel: function (role) { return { owner: '特権管理者', admin: '管理者', user: '一般' }[role] || role; },

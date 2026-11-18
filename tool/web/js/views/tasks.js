@@ -27,6 +27,8 @@
   }
   var selected = new Set();
   var columns = {};
+  // 一般ユーザーはログイン後に最初に開いたとき「自分の担当」で表示する（以後は選んだ条件を保持）
+  var mineInit = false;
 
   function loadPrefs() {
     try {
@@ -292,8 +294,17 @@
     return wrap;
   }
 
-  /* 実績未入力の行は「実績入力」、入力済みの行は「編集」。⋯ は参照表示 */
+  /* 実績未入力の行は「実績入力」、入力済みの行は「編集」。⋯ は参照表示。
+     編集できない行（一般ユーザーで担当者①・②が自分ではない）は「詳細」だけ */
   function actionCell(t) {
+    if (!State.canEditTask(t)) {
+      return U.el('td', {}, [U.el('div', { class: 'row-actions' }, [
+        U.el('button', {
+          class: 'btn btn-sm row-action', text: '詳細', title: '担当者①・②が自分ではないため閲覧のみです',
+          onclick: function (e) { e.stopPropagation(); Form.openViewer(t, function () { App.render(); }); }
+        })
+      ])]);
+    }
     var pending = Form.needsActual(t);
     return U.el('td', {}, [U.el('div', { class: 'row-actions' }, [
       U.el('button', {
@@ -324,7 +335,10 @@
     var isNum = f.type === 'number' || f.type === 'calc';
     // 区分で使わない step のセルは「入力不要」（灰色・直接編集なし）
     var na = Form.unusedStepKeys(task).indexOf(key) >= 0;
-    var td = U.el('td', { class: (isNum ? 'num ' : '') + (f.type === 'calc' ? 'col-calc' : na ? 'cell-na' : f.readonly ? '' : 'editable') });
+    // 編集できない行（一般ユーザーで担当者①・②が自分ではない）は直接編集なし。クリックで参照表示
+    var canEdit = State.canEditTask(task);
+    var editable = canEdit ? ' editable' : '';
+    var td = U.el('td', { class: (isNum ? 'num ' : '') + (f.type === 'calc' ? 'col-calc' : na ? 'cell-na' : f.readonly ? '' : editable.trim()) });
     if (na) td.title = '区分が「' + task.kubun + '」のときは入力不要です';
 
     if (key === 'status') {
@@ -332,9 +346,9 @@
       td.appendChild(Form.statusChip(task.effectiveStatus));
       if (task.isLate) td.appendChild(U.el('span', { class: 'chip', style: { background: 'var(--danger-soft)', color: 'var(--danger)', marginLeft: '4px' }, text: '遅延' }));
       if (missingKeys(task).length) td.appendChild(U.el('span', { class: 'chip chip-missing', style: { marginLeft: '4px' }, text: '実績未入力' }));
-      td.className += ' editable';
+      td.className += editable;
     } else if (key === 'progress') {
-      td.className = 'editable';
+      td.className = editable.trim();
       // 未入力は 0% と区別して空欄にする
       var pct = U.num(value);
       if (pct !== null) td.appendChild(U.el('div', { class: 'row-flex' }, [
@@ -342,7 +356,7 @@
         U.el('span', { class: 'muted mono', style: { width: '30px' }, text: pct + '%' })
       ]));
     } else if (key === 'programId') {
-      td.className = 'editable strong mono';
+      td.className = 'strong mono' + editable;
       td.textContent = value === null || value === undefined ? '' : value;
     } else if (f.type === 'date') {
       td.textContent = U.fmtDateFull(value);
@@ -363,11 +377,11 @@
       td.textContent = value === null || value === undefined ? '' : String(value);
     }
 
-    if (f.type !== 'calc' && !f.readonly && !na) {
+    if (canEdit && f.type !== 'calc' && !f.readonly && !na) {
       td.addEventListener('dblclick', function () { startEdit(td, task, f, rerender); });
     }
     td.addEventListener('click', function (e) {
-      if (e.detail === 1 && e.target === td && (f.type === 'calc' || f.readonly)) {
+      if (e.detail === 1 && e.target === td && (!canEdit || f.type === 'calc' || f.readonly)) {
         Form.openViewer(task, function () { App.render(); });
       }
     });
@@ -438,23 +452,29 @@
     var bar = U.el('div', { class: 'filterbar', style: { background: 'var(--primary-soft)', borderColor: '#bfdbfe' } });
     bar.appendChild(U.el('strong', { text: ids.length + ' 件を選択中' }));
 
-    var stSel = U.el('select', {});
-    stSel.appendChild(U.el('option', { value: '', text: 'ステータス一括変更…' }));
-    State.options('status').forEach(function (s) { stSel.appendChild(U.el('option', { value: s, text: s })); });
-    stSel.addEventListener('change', function () {
-      if (!this.value) return;
-      applyPatch(ids, { status: this.value }, rerender);
-    });
-    bar.appendChild(stSel);
+    // 一般ユーザーは担当者①・②が自分ではないタスクを含むと一括変更できない（CSV 出力のみ）
+    var locked = State.tasks.some(function (t) { return selected.has(t.id) && !State.canEditTask(t); });
+    if (locked) {
+      bar.appendChild(U.el('span', { class: 'muted', text: '担当者が自分ではないタスクを含むため、一括変更はできません' }));
+    } else {
+      var stSel = U.el('select', {});
+      stSel.appendChild(U.el('option', { value: '', text: 'ステータス一括変更…' }));
+      State.options('status').forEach(function (s) { stSel.appendChild(U.el('option', { value: s, text: s })); });
+      stSel.addEventListener('change', function () {
+        if (!this.value) return;
+        applyPatch(ids, { status: this.value }, rerender);
+      });
+      bar.appendChild(stSel);
 
-    var asSel = U.el('select', {});
-    asSel.appendChild(U.el('option', { value: '', text: '担当者一括変更…' }));
-    State.members().forEach(function (m) { asSel.appendChild(U.el('option', { value: m, text: m })); });
-    asSel.addEventListener('change', function () {
-      if (!this.value) return;
-      applyPatch(ids, { assignee1: this.value }, rerender);
-    });
-    bar.appendChild(asSel);
+      var asSel = U.el('select', {});
+      asSel.appendChild(U.el('option', { value: '', text: '担当者一括変更…' }));
+      State.members().forEach(function (m) { asSel.appendChild(U.el('option', { value: m, text: m })); });
+      asSel.addEventListener('change', function () {
+        if (!this.value) return;
+        applyPatch(ids, { assignee1: this.value }, rerender);
+      });
+      bar.appendChild(asSel);
+    }
 
     bar.appendChild(U.el('button', {
       class: 'btn btn-sm', text: 'CSV出力（選択分）', onclick: function () {
@@ -523,7 +543,13 @@
     searchable: true,
     onEnter: function (params) {
       loadPrefs();
+      if (!mineInit && !params) {
+        mineInit = true;
+        if (!State.isAdmin() && myMember()) { F.quick = 'mine'; F.assignee = ''; savePrefs(); }
+      }
       if (params) {
+        // 担当者・案件を指定して開いたときは、その条件の全件を出すため「自分の担当」を外す
+        if ((params.project || params.assignee) && F.quick === 'mine') F.quick = '';
         if (params.project) { F.project = params.project; F.type = 'all'; }
         if (params.assignee) F.assignee = params.assignee;
         if (params.status) F.status = params.status;
@@ -544,7 +570,8 @@
           onclick: function () {
             Form.openEditor({
               type: F.type === 'all' ? 'mfg' : F.type,
-              project: F.project || null, assignee1: F.assignee || null,
+              // 一般ユーザーは自分のタスクだけ登録できるため、他の担当者で絞り込み中でも担当者①は自分にする
+              project: F.project || null, assignee1: State.canEdit(F.assignee) ? F.assignee : null,
               resource: F.resource || null, kubun: F.kubun || null
             }, function () { App.render(); });
           }
