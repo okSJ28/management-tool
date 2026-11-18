@@ -357,6 +357,13 @@
     return a.status !== '完了' && a.status !== '中止' && !!a.date && a.date < todayIso && !roll.results.length;
   }
 
+  /* 予定超過: 終了日を過ぎても完了していない（完了・中止以外で、最新の進捗が 100% でない）。超過した日数（なければ 0） */
+  function overdueDays(a, roll, todayIso) {
+    var end = a.endDate || a.date;
+    if (a.status === '完了' || a.status === '中止' || !end || end >= todayIso || roll.progress === 100) return 0;
+    return U.diffDays(U.parseDate(end), U.parseDate(todayIso));
+  }
+
   /* 案件の絞り込みの選択肢：取組み予定に入力されている案件だけ */
   function assignmentProjects(list) {
     return U.uniq(list.map(function (a) { return a.project; }).filter(Boolean)).sort();
@@ -452,10 +459,12 @@
 
       /* --- KPI --- */
       var planned = U.sum(all, function (a) { return a.hours; });
-      var actual = 0, done = 0;
+      var actual = 0, done = 0, overdue = 0;
       all.forEach(function (a) {
-        actual += State.assignmentRollup(a).actualHours || 0;
+        var roll = State.assignmentRollup(a);
+        actual += roll.actualHours || 0;
         if (a.status === '完了') done += 1;
+        if (overdueDays(a, roll, todayIso)) overdue += 1;
       });
       var unlinked = (State.plans || []).filter(function (p) {
         return State.planKind(p) === 'result' && !p.assignmentId
@@ -466,7 +475,8 @@
       root.appendChild(U.el('div', { class: 'grid k4' }, [
         Views._helpers.kpi('取組み予定', String(all.length), '件',
           '表示期間内 ' + list.length + '件 / 完了 ' + done + '件 / 予定変更 '
-          + all.filter(function (a) { return (a.reschedules || []).length; }).length + '件', 'blue'),
+          + all.filter(function (a) { return (a.reschedules || []).length; }).length + '件'
+          + (overdue ? ' / ⏰ 予定超過 ' + overdue + '件' : ''), overdue ? 'amber' : 'blue'),
         Views._helpers.kpi('予定工数', U.fmtH(planned), 'h',
           '約 ' + U.fmtNum(planned / (State.settings().workHoursPerDay || 7.5), 1) + ' 人日', 'violet'),
         Views._helpers.kpi('実績積上', U.fmtH(actual), 'h',
@@ -515,16 +525,22 @@
         roll.results.forEach(function (r) { resultDays[r.date] = true; });
         State.dailyOf(a.id, 'plan').forEach(function (r) { planDays[r.date] = true; });
         var missing = noResultYet(a, roll, todayIso);
+        var over = overdueDays(a, roll, todayIso);
+        var endIso = a.endDate || a.date;
         // 予定を変更した取組み予定は、当初の期間を点線、当初の期間の外に出た日を斜線で表示する
         // （予定工数だけを変えて期間が当初のままなら、点線・斜線は出さない）
         var sl = slip(a);
         var b = sl && (sl.base.date !== a.date || sl.base.endDate !== (a.endDate || a.date)) ? sl.base : null;
+        // 実績なし（赤）を優先し、予定超過（オレンジ）は行の色・左端の線・ラベルで目立たせる
+        var tips = [];
+        if (missing) tips.push('開始日（' + U.fmtDateFull(a.date) + '）を過ぎていますが、日次入力の実績が 1 件も紐づいていません');
+        if (over) tips.push('終了日（' + U.fmtDateFull(endIso) + '）を ' + over + ' 日過ぎていますが、完了していません（最新の進捗 ' + (roll.progress === null ? '—' : roll.progress + '%') + '）');
         var tr = U.el('tr', {
-          style: { cursor: 'pointer', background: missing ? 'var(--danger-soft)' : null },
-          title: missing ? '開始日（' + U.fmtDateFull(a.date) + '）を過ぎていますが、日次入力の実績が 1 件も紐づいていません' : null,
+          style: { cursor: 'pointer', background: missing ? 'var(--danger-soft)' : over ? 'var(--warn-soft)' : null },
+          title: tips.join('\n') || null,
           onclick: function () { editor(a, function () { App.render(); }); }
         });
-        tr.appendChild(U.el('td', { class: 'col-pin', style: { boxShadow: missing ? 'inset 3px 0 0 var(--danger)' : null } }, [
+        tr.appendChild(U.el('td', { class: 'col-pin', style: { boxShadow: missing ? 'inset 3px 0 0 var(--danger)' : over ? 'inset 3px 0 0 var(--warn)' : null } }, [
           U.el('span', {
             class: 'avatar', style: {
               background: U.colorOf(a.member), width: '18px', height: '18px', flex: '0 0 18px',
@@ -540,6 +556,10 @@
           missing ? U.el('div', {
             class: 'strong', text: '⚠ 実績なし',
             style: { display: 'inline-block', background: 'var(--danger)', color: '#fff', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', fontSize: '10px' }
+          }) : null,
+          over ? U.el('div', {
+            class: 'strong', text: '⏰ 予定超過 ' + over + '日',
+            style: { display: 'inline-block', background: 'var(--warn)', color: '#fff', borderRadius: '3px', padding: '0 4px', marginBottom: '1px', marginLeft: missing ? '4px' : null, fontSize: '10px' }
           }) : null,
           U.el('div', { class: 'strong', style: { fontSize: '11.5px' }, text: a.title || '(作業内容未設定)' }),
           sl ? U.el('div', { class: 'pa-slip', title: historyTitle(a), text: '📅 ' + slipText(sl) }) : null,
@@ -565,8 +585,8 @@
             U.el('span', { style: { width: (roll.progress || 0) + '%', background: color } })
           ]),
           U.el('div', {
-            class: missing ? 'strong' : 'muted',
-            style: { fontSize: '10px', marginTop: '2px', color: missing ? 'var(--danger)' : null },
+            class: missing || over ? 'strong' : 'muted',
+            style: { fontSize: '10px', marginTop: '2px', color: missing ? 'var(--danger)' : over ? 'var(--warn)' : null },
             text: roll.progress === null ? '実績未入力' : roll.progress + '%'
           })
         ]));
@@ -606,6 +626,19 @@
               style: { borderTop: '2px dotted var(--warn)', marginTop: inSpan ? '2px' : '16px' }
             }));
           }
+          // 予定超過: 終了日の翌日から今日までをオレンジの斜線の帯で示す
+          if (over && iso > endIso && iso <= todayIso) {
+            cell.appendChild(U.el('div', {
+              title: U.fmtDateFull(iso) + ' / 予定超過（終了日 ' + U.fmtDateFull(endIso) + ' を過ぎています）' + (hasResult ? ' / 実績あり' : ''),
+              style: {
+                height: '14px', borderRadius: '3px', border: '1px solid var(--warn)',
+                background: 'repeating-linear-gradient(135deg, var(--warn-soft) 0 3px, #fcd34d 3px 6px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '9px', color: 'var(--warn)', fontWeight: 700
+              },
+              text: hasResult ? '✓' : ''
+            }));
+          }
           tr.appendChild(cell);
         });
         tb.appendChild(tr);
@@ -621,6 +654,8 @@
           U.el('span', { style: { fontWeight: 700, color: 'var(--warn)' }, text: '📅 = 予定を変更（下の点線 = 当初の期間、斜線 = 当初の期間の外に出た日）' }),
           U.el('span', { text: ' / ' }),
           U.el('span', { style: { fontWeight: 700, color: 'var(--danger)' }, text: '赤い行（⚠ 実績なし）= 開始日を過ぎても実績が紐づいていない' }),
+          U.el('span', { text: ' / ' }),
+          U.el('span', { style: { fontWeight: 700, color: 'var(--warn)' }, text: 'オレンジの行（⏰ 予定超過）= 終了日を過ぎても完了していない（終了日の後の斜線 = 超過した日）' }),
           U.el('span', { text: '　行クリックで編集' })
         ])
       ]));
