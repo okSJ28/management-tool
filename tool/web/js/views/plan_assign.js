@@ -5,7 +5,7 @@
   'use strict';
   var Views = global.Views = global.Views || {};
 
-  var A = { start: null, span: 28, member: '', status: '', showDone: true, changedOnly: false };
+  var A = { start: null, span: 28, member: '', project: '', grade: '', gradeInit: false, status: '', showDone: true, changedOnly: false };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
   function me() { return State.me(); }
@@ -366,9 +366,20 @@
       var days = [];
       for (var i = 0; i < A.span; i++) days.push(U.addDays(A.start, i));
       var from = U.iso(days[0]), to = U.iso(days[days.length - 1]);
+      // 一般ユーザーは最初に開いたとき自分の年次で絞り込む（チーム予定ボードと同じ。以後は選んだ条件を保持）
+      if (!A.gradeInit) {
+        A.gradeInit = true;
+        if (!State.isAdmin()) A.grade = State.memberAttr(State.user(), 'grade');
+      }
+      var attrs = Views.planBoard._attrs;
+      function inGrade(m) { return attrs.match(A, m, ['grade']); }
+      var candidates = State.members().filter(inGrade);
+      if (A.member && candidates.indexOf(A.member) < 0) A.member = '';
 
       var all = State.assignments().filter(function (a) {
         if (A.member && a.member !== A.member) return false;
+        if (!inGrade(a.member)) return false;
+        if (A.project && a.project !== A.project) return false;
         if (A.status && a.status !== A.status) return false;
         if (!A.showDone && a.status === '完了') return false;
         if (A.changedOnly && !(a.reschedules || []).length) return false;
@@ -405,7 +416,9 @@
         options.forEach(function (o) { s.appendChild(U.el('option', { value: o, text: o, selected: A[key] === o })); });
         bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
       }
-      sel('担当者', 'member', State.members());
+      attrs.fields(A, ['grade']).forEach(function (f) { bar.appendChild(f); });
+      sel('担当者', 'member', candidates);
+      sel('案件', 'project', State.projects());
       sel('ステータス', 'status', (State.masters.planStatuses || []).map(function (s) { return s.value; }));
       bar.appendChild(U.el('label', { class: 'row-flex', style: { fontSize: '11.5px', marginTop: '12px' } }, [
         U.el('input', {
@@ -438,7 +451,8 @@
       var unlinked = (State.plans || []).filter(function (p) {
         return State.planKind(p) === 'result' && !p.assignmentId
           && p.date >= from && p.date <= to
-          && (!A.member || p.member === A.member);
+          && (!A.member || p.member === A.member) && inGrade(p.member)
+          && (!A.project || p.project === A.project);
       }).length;
       root.appendChild(U.el('div', { class: 'grid k4' }, [
         Views._helpers.kpi('取組み予定', String(all.length), '件',

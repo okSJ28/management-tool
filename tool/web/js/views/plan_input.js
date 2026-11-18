@@ -9,6 +9,8 @@
   var Views = global.Views = global.Views || {};
 
   var P = { date: null, member: null, rows: null, leaves: [], removed: null, key: null, dirty: false, teamOpen: false, prevOpen: true };
+  /* チームの入力状況の年次・担当管理者の絞り込み（画面を開いている間だけ保持） */
+  var T = { grade: '', manager: '' };
 
   var PHASE = {
     plan: {
@@ -856,7 +858,9 @@
   }
 
   function teamStatus(date) {
-    var members = State.members();
+    var attrs = Views.planBoard._attrs;
+    var members = State.members().filter(function (m) { return attrs.match(T, m); });
+    var filtered = !!(T.grade || T.manager);
     var pc = 0, rc = 0;
     members.forEach(function (m) {
       var pl = plansOf(date, m, 'plan');
@@ -876,6 +880,11 @@
     ]);
     if (!P.teamOpen) return card;
 
+    // 年次・担当管理者で、表とヘッダーの件数（始業前・終業前 N/M）の対象を絞り込む
+    var bar = U.el('div', { class: 'filterbar', style: { margin: '0', borderWidth: '0 0 1px', borderRadius: '0', boxShadow: 'none' } });
+    attrs.fields(T).forEach(function (f) { bar.appendChild(f); });
+    card.appendChild(bar);
+
     var tbl = U.el('table', { class: 'grid-table' });
     tbl.appendChild(U.el('thead', {}, [
       U.el('tr', {}, ['担当者', '始業前', '終業前', '予定(h)', '実績(h)', '平均進捗'].map(function (h, i) {
@@ -884,7 +893,7 @@
     ]));
     var tb = U.el('tbody');
     if (!members.length) {
-      card.appendChild(U.el('div', { class: 'empty', html: '<span class="big">👥</span>メンバーが登録されていません' }));
+      card.appendChild(U.el('div', { class: 'empty', html: '<span class="big">👥</span>' + (filtered ? '条件に該当する担当者がいません' : 'メンバーが登録されていません') }));
       return card;
     }
     members.forEach(function (m) {

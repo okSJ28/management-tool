@@ -38,17 +38,32 @@
     });
   }
 
-  /* 年次・担当管理者での絞り込み（担当管理者は管理者のみ）。属性が未設定の担当者は UNSET で選ぶ */
+  /* 年次・担当管理者での絞り込み（担当管理者は管理者のみ）。属性が未設定の担当者は UNSET で選ぶ。
+     取組み予定・日次入力のチームの入力状況でも使う（state の grade / manager に選んだ値を持つ。keys で使う属性を選ぶ） */
   var ATTRS = [
     { key: 'grade', label: '年次', master: 'userGrades' },
     { key: 'manager', label: '担当管理者', master: 'userManagers', adminOnly: true }
   ];
-  function attrFilters() {
-    return ATTRS.filter(function (a) { return !a.adminOnly || State.isAdmin(); });
+  function attrFilters(keys) {
+    return ATTRS.filter(function (a) { return (!keys || keys.indexOf(a.key) >= 0) && (!a.adminOnly || State.isAdmin()); });
   }
-  function attrMatch(m) {
-    return attrFilters().every(function (a) {
-      return !B[a.key] || (State.memberAttr(m, a.key) || UNSET) === B[a.key];
+  function attrMatch(state, m, keys) {
+    return attrFilters(keys).every(function (a) {
+      return !state[a.key] || (State.memberAttr(m, a.key) || UNSET) === state[a.key];
+    });
+  }
+  /* 絞り込みの選択欄（.fld）。マスタから外した値も、設定済みの担当者がいれば選べるようにする */
+  function attrFields(state, keys) {
+    return attrFilters(keys).map(function (a) {
+      var values = (State.masters[a.master] || []).slice();
+      Object.keys(State.memberAttrs || {}).forEach(function (m) {
+        var v = State.memberAttr(m, a.key);
+        if (v && values.indexOf(v) < 0) values.push(v);
+      });
+      var s = U.el('select', { onchange: function () { state[a.key] = this.value; App.render(); } });
+      [['', '(すべて)']].concat(values.map(function (v) { return [v, v]; }), [[UNSET, '（未設定）']])
+        .forEach(function (o) { s.appendChild(U.el('option', { value: o[0], text: o[1], selected: state[a.key] === o[0] })); });
+      return U.el('div', { class: 'fld' }, [U.el('label', { text: a.label }), s]);
     });
   }
 
@@ -103,19 +118,8 @@
         options.forEach(function (o) { s.appendChild(U.el('option', { value: o, text: o, selected: B[key] === o })); });
         bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: label }), s]));
       }
-      attrFilters().forEach(function (a) {
-        // マスタから外した値も、設定済みの担当者がいれば選べるようにする
-        var values = (State.masters[a.master] || []).slice();
-        Object.keys(State.memberAttrs || {}).forEach(function (m) {
-          var v = State.memberAttr(m, a.key);
-          if (v && values.indexOf(v) < 0) values.push(v);
-        });
-        var s = U.el('select', { onchange: function () { B[a.key] = this.value; App.render(); } });
-        [['', '(すべて)']].concat(values.map(function (v) { return [v, v]; }), [[UNSET, '（未設定）']])
-          .forEach(function (o) { s.appendChild(U.el('option', { value: o[0], text: o[1], selected: B[a.key] === o[0] })); });
-        bar.appendChild(U.el('div', { class: 'fld' }, [U.el('label', { text: a.label }), s]));
-      });
-      var candidates = State.members().filter(attrMatch);
+      attrFields(B).forEach(function (f) { bar.appendChild(f); });
+      var candidates = State.members().filter(function (m) { return attrMatch(B, m); });
       if (B.member && candidates.indexOf(B.member) < 0) B.member = '';
       sel('担当者', 'member', candidates);
       sel('工程（作業区分）', 'category', (State.masters.planCategories || []).map(function (c) { return c.value; }));
@@ -539,4 +543,7 @@
     });
     U.download('業務予定実績.csv', new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' }));
   }
+
+  /* 取組み予定・日次入力（チームの入力状況）の年次・担当管理者の絞り込みに使う */
+  Views.planBoard._attrs = { fields: attrFields, match: attrMatch };
 })(window);
